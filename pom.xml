@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.nice.sonar</groupId>
+  <artifactId>sonar-mutation-report-plugin</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>sonar-plugin</packaging>
+  <name>Mutation Report</name>
+  <description>Language-agnostic: publishes mutation testing results produced by an external agent as Sonar measures.</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>17</maven.compiler.release>
+    <sonar.api.version>10.14.0.2599</sonar.api.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.sonarsource.api.plugin</groupId>
+      <artifactId>sonar-plugin-api</artifactId>
+      <version>${sonar.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.11.0</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.sonarsource.sonar-packaging-maven-plugin</groupId>
+        <artifactId>sonar-packaging-maven-plugin</artifactId>
+        <version>2.0.0.3035</version>
+        <extensions>true</extensions>
+        <configuration>
+          <pluginKey>mutationreport</pluginKey>
+          <pluginName>Mutation Report</pluginName>
+          <pluginClass>com.nice.sonar.mutation.MutationReportPlugin</pluginClass>
+          <pluginApiMinVersion>${sonar.api.version}</pluginApiMinVersion>
+          <skipDependenciesPackaging>false</skipDependenciesPackaging>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
