@@ -12,7 +12,8 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
-    <sonar.api.version>10.14.0.2599</sonar.api.version>
+    <sonar.api.version>10.11.0.2468</sonar.api.version>
+    <sonar.impl.version>10.7.0.96327</sonar.impl.version>
   </properties>
 
   <dependencies>
@@ -26,6 +27,24 @@
       <groupId>com.google.code.gson</groupId>
       <artifactId>gson</artifactId>
       <version>2.11.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.sonarsource.sonarqube</groupId>
+      <artifactId>sonar-plugin-api-impl</artifactId>
+      <version>${sonar.impl.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>3.25.3</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -43,6 +62,11 @@
           <pluginApiMinVersion>${sonar.api.version}</pluginApiMinVersion>
           <skipDependenciesPackaging>false</skipDependenciesPackaging>
         </configuration>
+      </plugin>
+    <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
       </plugin>
     </plugins>
   </build>
