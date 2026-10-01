@@ -82,6 +82,90 @@ error.
 
 Only `summary.mutation_score` is required today. The other fields are carried for the next iteration.
 
+## Connection to the mutation agent
+
+The data comes from the **unified-mutation-testing** agent (`agentic-platform`, plugin
+`plugin/unified-mutation-testing`). The agent does all the work; this plugin only reads the result.
+
+### End-to-end flow
+
+```
+developer runs the agent (own Sonar token in SONAR_TOKEN, asked for if missing)
+  1. agent finds the files changed vs --base and the exact changed lines (git diff)
+  2. runs each language's engine: Stryker (TS/JS), Stryker.NET (C#), PIT (Java), mutmut (Python),
+     gremlins (Go)
+  3. merges all engines into ONE score and checks it against the threshold (default 80)
+        pass   -> report is final (round 1 is the final state)
+        fail   -> with --remediate: agent writes tests to kill survivors, re-runs once ("round 2",
+                  --verify); without it the run reports and stops (exit 2)
+  4. final state is exported to .sonar/mutation-report.json (committed to the PR)
+the normal CI scan runs sonar-scanner -> this plugin reads the file -> measures appear
+the Sonar quality gate compares mutation_score with the threshold -> PR passes or is blocked
+```
+
+The plugin never talks to the agent and never runs a tool. The report file is the whole contract.
+
+### How the score is defined (agent side, authoritative)
+
+| Number | Formula | Used for |
+|---|---|---|
+| `mutation_score` | killed / total x 100 | **The gate.** A mutant no test reaches (NO_COVERAGE) counts as a failure. |
+| `test_strength` | killed / (killed + survived) x 100 | Information only. Ignores unreachable mutants. |
+
+- Scoring is **diff-scoped**: only mutants on lines the PR added or changed are counted, so a PR is
+  judged on its own changes. The overall (whole-file) score is reported separately.
+- Mutants on lines the agent classifies as equivalent or "arid" are suppressed: excluded from the
+  score and counted separately.
+- Threshold: the agent's `--threshold` (default 80). In Sonar the gate threshold is set in the quality
+  gate, and should match.
+
+### Rounds
+
+| Round | What happens | Outcome |
+|---|---|---|
+| 1 | Mutate the changed code, score it. | Score at or above threshold: **done, round 1 is final.** |
+| 2 | Only with `--remediate`: agent adds tests for surviving mutants, re-runs only the mutation step (`--verify`). | Score now passes: done. Still below: **manual review required**, agent stops. |
+
+Only the **final state** is uploaded (round 1 if it passed, otherwise round 2). Round history is not
+sent to Sonar in v1; it stays in the agent's own `gate.json` and report.
+
+### What the agent has, and where it goes
+
+| Agent data | Report field (planned) | Sonar |
+|---|---|---|
+| overall summary: total, killed, survived, no-coverage, errors, suppressed | `summary.*` | measures (`mutation_total`, `mutation_killed`, ...) |
+| `mutation_score` | `summary.mutation_score` | measure `mutation_score` (**gate**), this spike |
+| diff-scoped score | `summary.new_mutation_score` | measure `new_mutation_score`, this spike |
+| `test_strength` | `summary.test_strength` | measure `mutation_test_strength` |
+| per-language summaries (TypeScript, Python, Java, ...) | `languages.<name>.*` | per-language measures (fixed list + "other") |
+| survivors and no-coverage mutants: file, line, operator, status | `mutants[]` | external issues, final survivors only |
+| threshold, round, run ID, commit SHA, agent version | `run.*` | informational measures / checks |
+| lines of test code the agent added | `run.test_lines_added` | measure `mutation_test_lines_added` |
+| signature, runner ID | `run.signature` (phase 2) | `mutation_verified` (phase 2) |
+
+Not sent in v1: the HTML report, killing-test names, mutant descriptions, round-1 history.
+
+### Today vs target
+
+- **Today** the agent's Step 7 (`sonar_export.py`) writes a **SARIF** file (issues only) and wires
+  `sonar.sarifReportPaths`. It already filters to changed lines, drops files Sonar does not analyze,
+  and adds a score issue that fails a "new Critical issues > 0" gate. That works without any plugin and
+  stays as the fallback.
+- **Target** the same step also writes `.sonar/mutation-report.json` and wires
+  `sonar.mutation.reportPath`. The report must be committed to the PR, because CI's scan reads it from
+  the checkout (do not gitignore `.sonar/`).
+- Exit codes of the agent (for CI or scripts): 0 gate passed, 1 error, 2 gate failed (below threshold,
+  more work possible), 3 manual review required (still below threshold after round 2).
+
+### Identity and trust
+
+- **Phase 1:** whoever runs the agent supplies their own Sonar user token (the agent asks for it if it
+  is missing, reads it from `SONAR_TOKEN`, and never writes it to a file, log or commit). Sonar records
+  who submitted the analysis. This proves who uploaded, **not** that the numbers are authentic.
+- **Phase 2:** a signing service attests that the agent produced the report; the plugin verifies the
+  signature with a public key from a Sonar global setting and publishes `mutation_verified`. A gate
+  condition on it makes an unsigned or edited report fail the gate.
+
 ## Verification checklist (spike acceptance)
 
 Run a scan of a project that has the property and a report, then check:
