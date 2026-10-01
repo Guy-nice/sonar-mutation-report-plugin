@@ -33,7 +33,7 @@ class ComputersTest {
 
     private static Measure measure(Number n) {
       return (Measure) Proxy.newProxyInstance(Measure.class.getClassLoader(), new Class<?>[] {Measure.class},
-          (p, m, a) -> m.getName().equals("getIntValue") ? n.intValue() : n.doubleValue());
+          (p, m, a) -> m.getName().equals("getIntValue") ? (Object) n.intValue() : (Object) n.doubleValue());
     }
 
     MeasureComputerContext context() {
