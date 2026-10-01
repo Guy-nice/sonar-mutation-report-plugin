@@ -7,8 +7,9 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: spike (v0.1.0).** Proves that a plugin can publish a gateable mutation score. The report
-> schema and measure list are intentionally minimal and will change. Not for production.
+> **Status: v0.2.0 (full metric set).** Per-file measures with folder/project aggregation, new-code
+> variants, per-language measures, external issues for survivors. Verified on a local SonarQube 26.1
+> (see "Verification"). Not yet verified on sonartest or in production.
 
 ## Why a plugin
 
@@ -17,35 +18,68 @@ Sonar web API cannot create custom metrics on 2026.1, and the existing DevCon5 m
 works for Java and Kotlin. A small plugin that registers its own metrics is the supported way to get a
 real, gateable measure for any language.
 
-## What the spike publishes
+## What it publishes
 
-| Metric key | Name | Type | Source field in report |
-|---|---|---|---|
-| `mutation_score` | Mutation Score | percent (higher is better) | `summary.mutation_score` |
-| `new_mutation_score` | Mutation Score on New Code | percent (higher is better) | `summary.new_mutation_score` (optional) |
+All keys use the domain **Mutation Analysis**. Every metric below also exists as `new_mutation_<name>`
+(New Code), except where noted. File-level values are saved per file and aggregated to folders and the
+project, so the Measures page has a file tree, drill-down and treemap.
 
-Both are project-level measures in the "Mutation" domain. The point of the spike is to learn whether a
-quality gate condition on each of them is evaluated, in both the Overall Code and New Code views.
+| Metric key (`mutation_<name>`) | Meaning | Aggregation |
+|---|---|---|
+| `total` | mutants generated | sum |
+| `killed` | killed by tests (**the score numerator**) | sum |
+| `timed_out`, `memory_error` | detected by timeout / memory error | sum |
+| `killed_total` | killed + timed out + memory error (DevCon5's "Killed: Total") | sum |
+| `survived`, `no_coverage` | alive: tests run the line but miss / no test reaches it | sum |
+| `alive` | survived + no coverage | sum |
+| `unknown`, `suppressed` | unknown status / excluded as equivalent | sum |
+| `tests_executed`, `test_kills` | per-test data, only when the engine supplies it (absent otherwise) | sum |
+| `score` | killed / total (**the gate metric**) | recomputed from counts |
+| `test_strength` | killed / (killed + survived) | recomputed |
+| `density` | mutants per analyzable line, in percent | recomputed |
+| `alive_percent`, `total_percent` | component's share of project survivors / mutants (hotspots) | recomputed |
+| `test_kill_ratio` | test kills per test execution | recomputed |
+| `lines`, `global_total`, `global_alive` | hidden helpers | sum / project-wide constant |
+
+Also published: `mutation_threshold` (project), and per language `mutation_<lang>_{total,killed,survived,score}`
+and the `new_` variants, for `typescript`, `javascript`, `csharp`, `java`, `python`, `go` and `other`.
+
+Survivors and no-coverage mutants become **external issues** (rules `external_mutation-report:survived`
+and `external_mutation-report:no-coverage`) on the file and line. No language or quality profile is
+needed. Mutants in files Sonar did not analyze are skipped.
+
+### Mapping from the DevCon5 plugin (`dc5_*`)
+
+Keys are intentionally not compatible with DevCon5. Equivalents:
+
+| DevCon5 | This plugin |
+|---|---|
+| Mutation Coverage | `mutation_score` (killed by tests only; DevCon5 also counts timeouts/memory errors as killed, see `mutation_killed_total`) |
+| Killed by Tests / Timeout / Memory Error / Killed Total | `killed` / `timed_out` / `memory_error` / `killed_total` |
+| Alive Survivors / Not Covered / Total | `survived` / `no_coverage` / `alive` |
+| Test Strength | `test_strength` |
+| Density (per statement) | `density` (per **analyzable line**, not statement) |
+| Alive Total % / Total % | `alive_percent` / `total_percent` |
+| Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
 
 ## Compatibility
 
-- Built against Sonar plugin API **10.14.0.2599** (jar manifest `Sonar-Version: 10.14.0.2599`), Java 17
-  bytecode. Target server: self-hosted SonarQube Server **2026.1.x and later**.
-- Tested so far: **nothing on a live server yet.** That is what the install below is for.
+- Built against Sonar plugin API **10.11.0.2468**, Java 17 bytecode. Target server: self-hosted SonarQube
+  Server **2026.1.x and later**.
+- Tested: local SonarQube **26.1.0.118079** (unit tests plus a real scan, see "Verification"). Not yet
+  tested on sonartest.
 - Scanner side: any scanner that loads server plugins (SonarScanner CLI, Maven, Gradle, Jenkins).
 
 ## For the Sonar admin: install on sonartest
 
-1. Download `sonar-mutation-report-plugin-0.1.0-spike.jar` from the
-   [v0.1.0-spike release](https://github.com/Guy-nice/sonar-mutation-report-plugin/releases/tag/v0.1.0-spike).
+1. Download `sonar-mutation-report-plugin-<version>.jar` from the project's GitHub releases.
 2. Verify the checksum:
 
-       shasum -a 256 sonar-mutation-report-plugin-0.1.0-spike.jar
-       # a86bb706bfe0ef2dbe4b07b6f6beb87f217e5ac086f6fd8efdccc1b737975ab0
+       shasum -a 256 sonar-mutation-report-plugin-<version>.jar   # compare with the published .sha256
 
 3. Copy the jar into `<SONARQUBE_HOME>/extensions/plugins/` on the server (all nodes, if clustered).
-4. Restart SonarQube.
-5. Confirm it loaded: Administration > Marketplace > Installed should list **Mutation Report 0.1.0**,
+4. Restart SonarQube (remove any older mutation-report jar first).
+5. Confirm it loaded: Administration > Marketplace > Installed should list **Mutation Report**,
    or `GET /api/plugins/installed` should contain key `mutationreport`.
    If it is missing, check `<SONARQUBE_HOME>/logs/web.log` for lines mentioning `mutationreport`
    (the most likely failure is an incompatible plugin API version).
@@ -64,23 +98,31 @@ The path is relative to the project base directory. If the property is absent th
 the file is missing the scan logs a warning and continues. A malformed file fails the scan with a clear
 error.
 
-### Report format (spike)
+### Report format (schemaVersion 1)
+
+Unknown fields are ignored. Unknown major versions are rejected with a clear error.
 
 ```json
 {
-  "schemaVersion": "0.1-spike",
-  "run": { "threshold": 80 },
+  "schemaVersion": 1,
+  "run": { "runId": "r1", "threshold": 80 },
   "summary": {
-    "mutation_score": 73.3,
-    "new_mutation_score": 81.8,
-    "total": 30,
-    "killed": 22,
-    "survived": 8
-  }
+    "overall": { "total": 30, "killed": 22, "timedOut": 1, "memoryError": 1, "survived": 5,
+                 "noCoverage": 1, "suppressed": 2, "testsExecuted": 90, "testKills": 24 },
+    "new":     { "total": 11, "killed": 9, "survived": 2 }
+  },
+  "languages": { "TypeScript": { "overall": { "total": 20, "killed": 15, "survived": 5 },
+                                 "new": { "total": 11, "killed": 9, "survived": 2 } } },
+  "files": { "src/a.ts": { "language": "typescript", "lines": 40, "changedLines": 8,
+                           "overall": { "total": 20, "killed": 15, "survived": 5 },
+                           "new": { "total": 11, "killed": 9, "survived": 2 } } },
+  "mutants": [ { "file": "src/a.ts", "line": 10, "operator": "EqualityOperator", "status": "SURVIVED" } ]
 }
 ```
 
-Only `summary.mutation_score` is required today. The other fields are carried for the next iteration.
+Only `schemaVersion` and `summary.overall` are required. A count group whose `total` is smaller than the
+sum of its parts is rejected. `mutants[]` lists only SURVIVED and NO_COVERAGE mutants. Scores and
+percentages are computed by the plugin from the counts; they are not sent.
 
 ## Connection to the mutation agent
 
@@ -112,8 +154,10 @@ The plugin never talks to the agent and never runs a tool. The report file is th
 | `mutation_score` | killed / total x 100 | **The gate.** A mutant no test reaches (NO_COVERAGE) counts as a failure. |
 | `test_strength` | killed / (killed + survived) x 100 | Information only. Ignores unreachable mutants. |
 
-- Scoring is **diff-scoped**: only mutants on lines the PR added or changed are counted, so a PR is
-  judged on its own changes. The overall (whole-file) score is reported separately.
+- The agent today computes **only a diff-scoped score**: mutants outside the PR's changed lines are
+  dropped from numerator and denominator. There is no whole-file or repo-wide score yet. The target
+  (agent step C) is `new_mutation_score` = diff score and `mutation_score` = whole-file score of the
+  **changed files only**, never repo-wide.
 - Mutants on lines the agent classifies as equivalent or "arid" are suppressed: excluded from the
   score and counted separately.
 - Threshold: the agent's `--threshold` (default 80). In Sonar the gate threshold is set in the quality
@@ -134,8 +178,8 @@ sent to Sonar in v1; it stays in the agent's own `gate.json` and report.
 | Agent data | Report field (planned) | Sonar |
 |---|---|---|
 | overall summary: total, killed, survived, no-coverage, errors, suppressed | `summary.*` | measures (`mutation_total`, `mutation_killed`, ...) |
-| `mutation_score` | `summary.mutation_score` | measure `mutation_score` (**gate**), this spike |
-| diff-scoped score | `summary.new_mutation_score` | measure `new_mutation_score`, this spike |
+| `mutation_score` | `summary.overall` counts | measure `mutation_score` (**gate**), computed by the plugin |
+| diff-scoped score | `summary.new` counts | measure `new_mutation_score`, computed by the plugin |
 | `test_strength` | `summary.test_strength` | measure `mutation_test_strength` |
 | per-language summaries (TypeScript, Python, Java, ...) | `languages.<name>.*` | per-language measures (fixed list + "other") |
 | survivors and no-coverage mutants: file, line, operator, status | `mutants[]` | external issues, final survivors only |
@@ -147,13 +191,11 @@ Not sent in v1: the HTML report, killing-test names, mutant descriptions, round-
 
 ### Today vs target
 
-- **Today** the agent's Step 7 (`sonar_export.py`) writes a **SARIF** file (issues only) and wires
-  `sonar.sarifReportPaths`. It already filters to changed lines, drops files Sonar does not analyze,
-  and adds a score issue that fails a "new Critical issues > 0" gate. That works without any plugin and
-  stays as the fallback.
-- **Target** the same step also writes `.sonar/mutation-report.json` and wires
-  `sonar.mutation.reportPath`. The report must be committed to the PR, because CI's scan reads it from
-  the checkout (do not gitignore `.sonar/`).
+- **Today** the agent's Step 7 (`sonar_export.py`) writes a **SARIF** file (issues only). The plugin now
+  raises the same survivor issues itself, so SARIF is removed from the agent (decision: no SARIF at all).
+- **Target** the agent writes `.sonar/mutation-report.json`, wires `sonar.mutation.reportPath` and runs the
+  Sonar scan itself (runner's token from `SONAR_TOKEN`, upload failure exits 4). The report must be
+  committed to the PR, because CI's scan reads it from the checkout (do not gitignore `.sonar/`).
 - Exit codes of the agent (for CI or scripts): 0 gate passed, 1 error, 2 gate failed (below threshold,
   more work possible), 3 manual review required (still below threshold after round 2).
 
@@ -166,20 +208,23 @@ Not sent in v1: the HTML report, killing-test names, mutant descriptions, round-
   signature with a public key from a Sonar global setting and publishes `mutation_verified`. A gate
   condition on it makes an unsigned or edited report fail the gate.
 
-## Verification checklist (spike acceptance)
+## Verification
 
-Run a scan of a project that has the property and a report, then check:
+Done locally on SonarQube 26.1.0.118079 (zip distribution, plugin jar in `extensions/plugins/`), scanning
+a synthetic project with the sample report from `TestReports`:
 
-1. Scanner log contains `Mutation Report: published mutation_score=...`.
-2. The project's Overview > Overall Code shows the score (Measures > domain "Mutation").
-3. `GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` returns
-   both values.
-4. Create a quality gate with the condition **Mutation Score is less than 80** and assign it to the
-   project. The gate fails for a 73.3 score and passes for 81.8.
-5. Repeat on a **pull request** analysis. Check whether a condition on `new_mutation_score` is evaluated
-   on the PR, and whether the PR quality gate status reflects it.
+- Plugin loads, analysis succeeds, all metrics are registered and populated (36 on a file).
+- File, folder and project values aggregate correctly, including `new_` values per file.
+- Quality gate conditions on `mutation_score` and `new_mutation_score` are evaluated (a 73.3 score failed
+  a "less than 80" condition, a 81.8 new-code score failed "less than 90").
+- External issues land on the right file and line.
 
-Items 4 and 5 are the open questions. The result decides how new-code gating is built in the full plugin.
+Still open: a pull request analysis (needs a branch-enabled edition or a PR-capable setup), a second Sonar
+version, and a run on sonartest.
+
+To repeat on any server: scan a project that sets `sonar.mutation.reportPath`, then check
+`GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` and
+`GET /api/issues/search?componentKeys=<key>`.
 
 ## Build
 
@@ -192,18 +237,13 @@ keychain:
 
     export MAVEN_OPTS="-Djavax.net.ssl.trustStoreType=KeychainStore -Djavax.net.ssl.trustStore=NONE"
 
-## Design direction (full plugin, not in this spike)
+## Roadmap
 
-- One versioned JSON report written by the mutation agent. The plugin owns the JSON Schema.
-- More measures: counts (total, killed, survived, no-coverage, errors, suppressed), test strength,
-  threshold, test lines added, and per-language score and counts for a fixed language list plus "other".
-- Survivors raised as external issues (no language or quality profile needed), final state only, with a
-  pull request changed-line filter.
-- Gate threshold lives in the Sonar quality gate, not in the report.
 - Phase 2: report signing by an agent-attestation service, a `mutation_verified` measure, and Ed25519
   public keys held in a Sonar global setting. Phase 1 identity is the Sonar user token of whoever runs
   the scan, which proves who uploaded, not that the numbers are authentic.
-- Docker-based integration tests on 2026.1.x and the next Sonar version, per pull request and nightly.
+- Pull request changed-line filter for issues.
+- Automated integration tests on 2026.1.x and the next Sonar version.
 
 ## License
 
