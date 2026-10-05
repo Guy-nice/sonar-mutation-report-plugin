@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.nice.sonar</groupId>
   <artifactId>sonar-mutation-report-plugin</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
   <packaging>sonar-plugin</packaging>
   <name>Mutation Report</name>
   <description>Language-agnostic: publishes mutation testing results produced by an external agent as Sonar measures.</description>
