@@ -2,6 +2,7 @@ import type { PageContext } from '../context';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult } from '../types';
 import { h } from './dom';
+import { renderPrDetail } from './prDetail';
 import { renderPrList } from './prList';
 
 export type DetailRenderer = (
@@ -9,7 +10,7 @@ export type DetailRenderer = (
 ) => Promise<void> | void;
 
 export async function renderProjectPage(
-  root: HTMLElement, data: DataSource, ctx: PageContext, now: () => Date = () => new Date(), detail?: DetailRenderer,
+  root: HTMLElement, data: DataSource, ctx: PageContext, now: () => Date = () => new Date(), detail: DetailRenderer = renderPrDetail,
 ): Promise<void> {
   injectStyles();
   const project = { key: ctx.project, name: ctx.project };
@@ -20,12 +21,7 @@ export async function renderProjectPage(
   }
 
   async function showDetail(pr: PrResult): Promise<void> {
-    if (detail) await detail(root, data, ctx.project, pr, () => void showList(), now);
-    else root.textContent = `Pull request ${pr.pr.key}`;
-    if (!root.querySelector('[data-action="back"]')) {
-      const back = h('button', { class: 'md-link', 'data-action': 'back', onclick: () => void showList() }, 'All pull requests');
-      root.querySelector('.md')?.prepend(back) ?? root.prepend(back);
-    }
+    await detail(root, data, ctx.project, pr, () => void showList(), now);
   }
 
   if (ctx.kind === 'pr') {

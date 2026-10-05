@@ -21,7 +21,6 @@ describe('project page routing', () => {
     await renderProjectPage(root, data(), { kind: 'pr', project: 'p', pr: '14' }, () => NOW, detail);
     expect(root.textContent).toContain('DETAIL');
     expect(detail.mock.calls[0][3].pr.key).toBe('14');
-    expect(root.querySelector('[data-action="back"]')).not.toBeNull();
   });
 
   it('clicking a row opens the detail, back returns to the list', async () => {
