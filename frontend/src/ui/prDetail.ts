@@ -96,7 +96,7 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
       h('tr', { 'data-file': f.fileKey, class: f.fileKey === selected ? 'selected' : '', style: 'cursor:pointer', onclick: () => { selected = f.fileKey; paintRows(); paintRight(); } },
         h('td', {}, f.path), h('td', {}, f.language),
         h('td', { 'data-col': 'score', class: f.score !== null && f.score < r.threshold ? 'md-fail' : '' }, fmtPct(f.score)),
-        h('td', {}, String(f.alive)), h('td', {}, fmtInt(f.changedLines)),
+        h('td', { 'data-col': 'alive' }, fmtInt(f.alive)), h('td', {}, fmtInt(f.changedLines)),
         h('td', { class: 'md-muted' }, fmtPct(f.wholeFileScore)))));
     paintRows();
     paintRight();

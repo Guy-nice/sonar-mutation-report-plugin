@@ -28,6 +28,11 @@ export function isPassing(r: PrResult): boolean {
   return r.hasData && r.score !== null && r.score >= r.threshold;
 }
 
+/** True when the list endpoint 404s: the server has no pull request analysis (needs Developer Edition or higher). */
+export function isNoPrAnalysis(error: string | null): boolean {
+  return error !== null && /HTTP 404 \/api\/project_pull_requests\/list/.test(error);
+}
+
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const s = [...values].sort((a, b) => a - b);
@@ -53,7 +58,7 @@ export function summarizeProject(res: ProjectResult, now: Date): ProjectSummary 
   const prs = res.prs.filter((r) => inWindow(r, now));
   const withData = prs.filter((r) => r.hasData);
   const scored = withData.filter((r) => r.score !== null);
-  const passing = withData.filter(isPassing).length;
+  const passing = scored.filter(isPassing).length;
   const latest = [...prs].sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate))[0] ?? null;
   return {
     key: res.project.key,
@@ -62,7 +67,7 @@ export function summarizeProject(res: ProjectResult, now: Date): ProjectSummary 
     total: prs.length,
     withData: withData.length,
     failingOpen: prs.filter((r) => isFailing(r) && isOpen(r, now)).length,
-    passRate: withData.length ? (passing / withData.length) * 100 : null,
+    passRate: scored.length ? (passing / scored.length) * 100 : null,
     medianScore: median(scored.map((r) => r.score as number)),
     latest,
   };
@@ -80,13 +85,14 @@ export function summarizeOverview(results: ProjectResult[], now: Date): Overview
   const ok = results.filter((r) => !r.error);
   const prs = ok.flatMap((r) => r.prs.filter((p) => inWindow(p, now)));
   const withData = prs.filter((p) => p.hasData);
-  const passing = withData.filter(isPassing).length;
+  const scored = withData.filter((p) => p.score !== null);
+  const passing = scored.filter(isPassing).length;
   return {
     failingOpen: prs.filter((p) => isFailing(p) && isOpen(p, now)).length,
-    passRate: withData.length ? (passing / withData.length) * 100 : null,
+    passRate: scored.length ? (passing / scored.length) * 100 : null,
     projectsWithData: ok.filter((r) => r.prs.some((p) => inWindow(p, now) && p.hasData)).length,
     projectsTotal: results.length,
-    medianScore: median(withData.filter((p) => p.score !== null).map((p) => p.score as number)),
+    medianScore: median(scored.map((p) => p.score as number)),
   };
 }
 

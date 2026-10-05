@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  inWindow, isFailing, isOpen, isPassing, median, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject,
+  inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, median, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject,
 } from '../src/model';
 import type { FileRow } from '../src/types';
 import { NOW, makePr, noData, project } from './fixtures';
@@ -35,6 +35,27 @@ describe('windows', () => {
   it('open means analyzed in the last 7 days', () => {
     expect(isOpen(makePr('1', { hours: 24 * 6 }), NOW)).toBe(true);
     expect(isOpen(makePr('1', { hours: 24 * 8 }), NOW)).toBe(false);
+  });
+});
+
+describe('PRs with data but no score', () => {
+  it('count as adopted but stay out of the pass rate and median', () => {
+    const scoreless = makePr('2', { score: null });
+    const s = summarizeProject(project('p', [makePr('1', { score: 90 }), scoreless]), NOW);
+    expect(s.withData).toBe(2);
+    expect(s.passRate).toBe(100);
+    expect(s.medianScore).toBe(90);
+    const o = summarizeOverview([project('p', [makePr('1', { score: 90 }), scoreless])], NOW);
+    expect(o.passRate).toBe(100);
+  });
+});
+
+describe('isNoPrAnalysis', () => {
+  it('recognizes a 404 on the pull request list endpoint only', () => {
+    expect(isNoPrAnalysis('HTTP 404 /api/project_pull_requests/list')).toBe(true);
+    expect(isNoPrAnalysis('HTTP 403 /api/project_pull_requests/list')).toBe(false);
+    expect(isNoPrAnalysis('HTTP 404 /api/measures/component')).toBe(false);
+    expect(isNoPrAnalysis(null)).toBe(false);
   });
 });
 

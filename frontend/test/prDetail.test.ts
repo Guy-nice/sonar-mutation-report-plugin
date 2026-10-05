@@ -56,6 +56,14 @@ describe('PR detail', () => {
     expect(root.querySelector('tr[data-file="p:x.ts"] [data-col="score"]')?.textContent).toBe('-');
   });
 
+  it('a file whose alive count is unknown shows a dash, not 0', async () => {
+    const d = data();
+    d.files['p#14'] = [{ ...file('a.ts', 80), alive: null }];
+    await open(d);
+    await vi.waitFor(() => expect(root.querySelectorAll('tr[data-file]')).toHaveLength(1));
+    expect(root.querySelector('tr[data-file="p:a.ts"] [data-col="alive"]')?.textContent).toBe('-');
+  });
+
   it('survivors panel starts on the weakest file and follows the selected file', async () => {
     await open();
     await vi.waitFor(() => expect(root.querySelectorAll('[data-panel="files"] tr[data-survivor]')).toHaveLength(2));

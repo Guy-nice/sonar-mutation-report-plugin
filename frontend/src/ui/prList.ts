@@ -1,5 +1,5 @@
 import { fmtAge, fmtInt, fmtPct, scoreColor } from '../format';
-import { inWindow, isFailing, isOpen, isPassing, median } from '../model';
+import { inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, median } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef } from '../types';
 import { clear, h } from './dom';
@@ -32,7 +32,9 @@ export async function renderPrList(
   clear(box);
   box.append(h('h1', {}, `Mutation - ${project.name}`));
   if (res.error) {
-    box.append(h('p', { class: 'md-fail' }, `Could not load pull requests: ${res.error}`));
+    box.append(isNoPrAnalysis(res.error)
+      ? h('p', { class: 'md-note' }, 'This Sonar server has no pull request analysis (Developer Edition or higher is needed), so there is nothing to show.')
+      : h('p', { class: 'md-fail' }, `Could not load pull requests: ${res.error}`));
     return;
   }
   const inWin = res.prs.filter((r) => inWindow(r, now()));
@@ -58,8 +60,9 @@ export async function renderPrList(
       .sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate));
 
     const withData = inWin.filter((r) => r.hasData);
-    const passRate = withData.length ? (withData.filter(isPassing).length / withData.length) * 100 : null;
-    const med = median(withData.filter((r) => r.score !== null).map((r) => r.score as number));
+    const scored = withData.filter((r) => r.score !== null);
+    const passRate = scored.length ? (scored.filter(isPassing).length / scored.length) * 100 : null;
+    const med = median(scored.map((r) => r.score as number));
     const failing = inWin.filter((r) => isFailing(r) && isOpen(r, now())).length;
     const kpi = (n: string, v: string, l: string, cls = '') =>
       h('div', { class: 'md-kpi', 'data-tile': n }, h('div', { class: `v ${cls}` }, v), h('div', { class: 'l' }, l));
@@ -68,7 +71,7 @@ export async function renderPrList(
     holder.append(
       h('div', { class: 'md-kpis' },
         kpi('failingOpen', String(failing), 'open PRs failing now', failing ? 'md-fail' : ''),
-        kpi('passRate', fmtPct(passRate, 0), `pass rate (${withData.filter(isPassing).length} / ${withData.length} PRs)`),
+        kpi('passRate', fmtPct(passRate, 0), `pass rate (${scored.filter(isPassing).length} / ${scored.length} PRs)`),
         kpi('median', fmtPct(med), 'median new-code score'),
         kpi('withData', `${withData.length} / ${inWin.length}`, 'PRs with mutation data')),
       h('table', { class: 'md-table' },
@@ -82,7 +85,7 @@ export async function renderPrList(
             r.thresholdAssumed && r.hasData ? h('span', { class: 'md-muted' }, ' (threshold assumed)') : null),
           h('td', { 'data-col': 'survived' }, r.hasData ? fmtInt(r.measures.new_mutation_survived) : '-'),
           h('td', { 'data-col': 'noCoverage' }, r.hasData ? fmtInt(r.measures.new_mutation_no_coverage) : '-'))))),
-      h('p', { class: 'md-muted' }, 'Black tick on each bar = threshold.'),
+      h('p', { class: 'md-muted' }, 'Black tick on each bar = threshold. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).'),
     );
   }
 

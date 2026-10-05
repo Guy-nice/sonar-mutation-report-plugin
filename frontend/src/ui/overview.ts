@@ -1,5 +1,5 @@
 import { fmtAge, fmtPct, projectPageUrl } from '../format';
-import { isFailing, sortProjects, summarizeOverview, summarizeProject, type ProjectSummary, type SortDir, type SortKey } from '../model';
+import { isFailing, isNoPrAnalysis, sortProjects, summarizeOverview, summarizeProject, type ProjectSummary, type SortDir, type SortKey } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef, ProjectResult } from '../types';
 import { clear, h } from './dom';
@@ -18,14 +18,16 @@ function rateBar(pct: number): HTMLElement {
   return h('span', { class: 'md-bar' }, h('i', { style: `width:${Math.max(0, Math.min(100, pct))}%;background:${color}` }));
 }
 
-export function renderOverview(root: HTMLElement, data: DataSource, now: () => Date = () => new Date()): { reload(): Promise<void> } {
+export function renderOverview(root: HTMLElement, data: DataSource, now: () => Date = () => new Date()): { reload(): Promise<void>; dispose(): void } {
   injectStyles();
   const results = new Map<string, ProjectResult>();
   let projects: ProjectRef[] = [];
   let loading = true;
   let sortKey: SortKey = 'failingOpen';
   let sortDir: SortDir = 'desc';
-  let onlyWithData = true;
+  let onlyWithData = false;
+  /** Bumped by every load and by dispose: results of an older load are dropped. */
+  let loadId = 0;
 
   const body = h('div', { class: 'md' });
   root.replaceChildren(body);
@@ -40,6 +42,10 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const r = s.latest as PrResult;
     if (!r.hasData) {
       td.append(`#${r.pr.key} `, h('span', { class: 'md-muted' }, 'no mutation data'));
+      return td;
+    }
+    if (r.score === null) {
+      td.append(`#${r.pr.key} `, h('span', { class: 'md-pill none' }, 'NO SCORE'), ` ${fmtAge(r.pr.analysisDate, now())}`);
       return td;
     }
     const failing = isFailing(r);
@@ -69,6 +75,12 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
 
   function paint(): void {
     const list = [...results.values()];
+    if (!loading && list.length > 0 && list.every((r) => isNoPrAnalysis(r.error))) {
+      clear(body);
+      body.append(h('h1', {}, 'Mutation overview'),
+        h('p', { class: 'md-note' }, 'This Sonar server has no pull request analysis (Developer Edition or higher is needed), so there is nothing to show.'));
+      return;
+    }
     const o = summarizeOverview(list, now());
     let summaries = list.map((r) => summarizeProject(r, now()));
     if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
@@ -102,25 +114,35 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
         loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} projects...`) : null),
       projects.length === 0 && !loading
         ? h('p', { class: 'md-muted' }, 'No projects found.')
-        : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row))),
+        : summaries.length === 0 && !loading
+          ? h('p', { class: 'md-muted' }, 'No projects with mutation data.')
+          : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row))),
+      h('p', { class: 'md-muted' }, '"Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).'),
     );
   }
 
   async function retry(key: string): Promise<void> {
     const p = projects.find((x) => x.key === key);
     if (!p) return;
-    results.set(key, await data.loadProject(p));
+    const id = loadId;
+    const res = await data.loadProject(p);
+    if (id !== loadId) return;
+    results.set(key, res);
     paint();
   }
 
   async function load(clearFirst: boolean): Promise<void> {
+    const id = ++loadId;
     if (clearFirst) data.clearCache();
     results.clear();
     loading = true;
     paint();
     try {
-      projects = await data.listProjects();
+      const list = await data.listProjects();
+      if (id !== loadId) return;
+      projects = list;
     } catch (e) {
+      if (id !== loadId) return;
       loading = false;
       clear(body);
       body.append(h('h1', {}, 'Mutation overview'), h('p', { class: 'md-fail' }, `Could not load projects: ${e instanceof Error ? e.message : String(e)}`));
@@ -128,14 +150,17 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     }
     paint();
     await Promise.all(projects.map(async (p) => {
-      results.set(p.key, await data.loadProject(p));
+      const res = await data.loadProject(p);
+      if (id !== loadId) return;
+      results.set(p.key, res);
       paint();
     }));
+    if (id !== loadId) return;
     loading = false;
     paint();
   }
   const reload = () => load(true);
   void load(false);
 
-  return { reload };
+  return { reload, dispose: () => { loadId++; } };
 }

@@ -81,6 +81,23 @@ describe('PR list', () => {
     expect(root.textContent).toContain('HTTP 403');
   });
 
+  it('a PR with data but no score shows NO SCORE and stays out of the pass rate', async () => {
+    const d = new FakeData([project('p', [makePr('1', { score: 90 }), makePr('2', { score: null })])]);
+    await renderPrList(root, d, { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(cell('2', 'status')).toBe('NO SCORE');
+    expect(tile('passRate')).toBe('100%');
+  });
+
+  it('says what open means', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(root.textContent).toContain('analyzed in the last 7 days');
+  });
+
+  it('a server without pull request analysis gets a clear message', async () => {
+    await renderPrList(root, new FakeData([project('p', [], 'HTTP 404 /api/project_pull_requests/list')]), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(root.textContent).toContain('no pull request analysis');
+  });
+
   it('a threshold that was assumed is flagged', async () => {
     const d = new FakeData([project('p', [makePr('1', { thresholdAssumed: true })])]);
     await renderPrList(root, d, { key: 'p', name: 'p' }, () => {}, () => NOW);

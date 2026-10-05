@@ -1,4 +1,5 @@
 import { sonarBase } from './format';
+import { WINDOW_DAYS } from './model';
 import {
   DEFAULT_THRESHOLD, type DataSource, type FileRow, type MetricInfo, type PrResult, type ProjectRef, type ProjectResult,
   type PullRequestRef, type SurvivorRow,
@@ -111,8 +112,10 @@ export class SonarApi implements DataSource {
   private async pullRequests(projectKey: string): Promise<PullRequestRef[]> {
     const r = await this.get<{ pullRequests?: Array<{ key: string; title?: string; branch?: string; base?: string; target?: string; analysisDate?: string }> }>(
       '/api/project_pull_requests/list', { project: projectKey });
+    // Sonar sends offsets like +0000, which is not ISO 8601 and not parseable in every browser.
     return (r.pullRequests ?? []).map((p) => ({
-      key: p.key, title: p.title ?? '', branch: p.branch ?? '', base: p.base ?? p.target ?? '', analysisDate: p.analysisDate ?? '',
+      key: p.key, title: p.title ?? '', branch: p.branch ?? '', base: p.base ?? p.target ?? '',
+      analysisDate: (p.analysisDate ?? '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'),
     }));
   }
 
@@ -142,7 +145,11 @@ export class SonarApi implements DataSource {
 
   async loadProject(project: ProjectRef): Promise<ProjectResult> {
     try {
-      const prs = await this.pullRequests(project.key);
+      // Skip pull requests the pages never show: it saves one request each.
+      const prs = (await this.pullRequests(project.key)).filter((p) => {
+        const age = (this.now() - new Date(p.analysisDate).getTime()) / 86_400_000;
+        return Number.isNaN(age) || age <= WINDOW_DAYS;
+      });
       const results = await Promise.all(prs.map((p) => this.prResult(project.key, p)));
       return { project, prs: results, error: null };
     } catch (e) {
@@ -167,7 +174,7 @@ export class SonarApi implements DataSource {
       if (m.new_mutation_total === undefined && m.new_mutation_score === undefined) continue;
       rows.push({
         fileKey: c.key, path: c.path ?? c.name ?? c.key, language: c.language ?? '',
-        score: m.new_mutation_score ?? null, alive: m.new_mutation_alive ?? 0,
+        score: m.new_mutation_score ?? null, alive: m.new_mutation_alive ?? null,
         changedLines: m.new_mutation_lines ?? null, wholeFileScore: m.mutation_score ?? null,
       });
     }
@@ -179,7 +186,7 @@ export class SonarApi implements DataSource {
     const paths = new Map<string, string>();
     const issues = await this.all<Issue, { issues: Issue[]; components?: Array<{ key: string; path?: string }> }>(
       '/api/issues/search',
-      { componentKeys: projectKey, pullRequest: prKey, rules: SURVIVOR_RULES },
+      { components: projectKey, pullRequest: prKey, rules: SURVIVOR_RULES, resolved: 'false' },
       (r) => {
         for (const c of r.components ?? []) if (c.path) paths.set(c.key, c.path);
         return r.issues ?? [];

@@ -70,7 +70,8 @@ Sonar changes: no other metric, gate, rule or plugin is touched.
 
 - **Mutation overview** (top menu **More > Mutation overview**): for managers. Tiles (open PRs failing now,
   PR pass rate, projects using mutation, median new-code score) and a sortable table per project: failing open
-  PRs (default sort), pass rate, median score, adoption, latest PR. Projects without mutation data sort last.
+  PRs (default sort), pass rate, median score, adoption, latest PR. Projects without mutation data sort last and
+  stay visible (the adoption gap); a checkbox hides them.
 - **Mutation** (project menu **More > Mutation**): the PR list for the last 30 days (status, new-code score with
   a threshold mark, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
   for the detail: verdict and score against the threshold, counts, and tabs Files (weakest first, with the
@@ -80,7 +81,8 @@ Sonar changes: no other metric, gate, rule or plugin is touched.
 Definitions (the same on every page): **failing** = an open PR whose latest `new_mutation_score` is below
 `mutation_threshold`; **pass rate** = passing PRs / PRs with mutation data; **adoption** = PRs with mutation
 data / all analyzed PRs; **median score** = median of the latest `new_mutation_score` per PR with data. Window:
-30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no data", never as 0.
+30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no data", never as 0. A PR with data but no score shows "NO SCORE" and
+is left out of the pass rate and the median.
 Sonar does not reliably say whether a PR is still open, so "open" means "analyzed in the last 7 days".
 
 How it works: the pages call Sonar's web API from the browser with the viewer's own session, so Sonar's
@@ -90,7 +92,7 @@ beyond that, aggregate outside Sonar (for example BI over the web API).
 
 Limits to know about:
 
-- Needs **pull request analysis** (Developer Edition or higher). Without it the pages show "unavailable".
+- Needs **pull request analysis** (Developer Edition or higher). Without it the pages say the server has no pull request analysis.
 - Sonar deletes inactive pull request analyses after its housekeeping period (30 days by default); the pages
   can only show what Sonar still keeps.
 - The pages appear in the menu of every project on the server; projects not using mutation show "no data".
@@ -98,8 +100,10 @@ Limits to know about:
 - The first time a new third-party plugin version is detected, Sonar asks an administrator to accept the plugin
   risk once.
 
-Build: `mvn package` also builds the frontend (`frontend/`, TypeScript bundled by esbuild into
-`src/main/resources/static/`), so it needs **Node 20 or newer and npm**. Use `-Dfrontend.skip=true` to skip it
+Build: `mvn package` also builds the frontend (`frontend/`, type-checked with `tsc`, bundled by esbuild into
+`src/main/resources/static/`), so it needs **Node 20 or newer and npm** (npm refuses older Node). `-DskipTests`
+also skips the frontend tests. A build with `-Dfrontend.skip=true` on a clean checkout has no JavaScript, and the
+Java test that looks for the bundles fails. Use `-Dfrontend.skip=true` to skip it
 when only the Java changed. `cd frontend && npm test` runs the frontend tests; `npm run dev` builds a local
 harness (`frontend/dev/index.html`, serve it over http) that renders both pages with fake data, no Sonar
 needed. `scripts/upload-mock-prs.sh` uploads several mock pull request analyses to a project, to see the pages

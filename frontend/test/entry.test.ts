@@ -24,6 +24,21 @@ describe('extension entry points', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('mounting the overview twice reuses one API client, so the 5 minute cache survives navigation', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => ({ components: [], paging: { total: 0 } }) };
+    });
+    await import('../src/entry-overview');
+    const mount = () => registered['mutationreport/overview']({ el: document.createElement('div') });
+    mount();
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    mount();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.filter((c) => c.includes('/api/components/search'))).toHaveLength(1);
+  });
+
   it('project registers under mutationreport/project and cleans up', async () => {
     await import('../src/entry-project');
     expect(Object.keys(registered)).toEqual(['mutationreport/project']);

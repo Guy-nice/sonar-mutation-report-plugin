@@ -15,6 +15,7 @@
     <sonar.api.version>10.11.0.2468</sonar.api.version>
     <sonar.impl.version>10.7.0.96327</sonar.impl.version>
     <frontend.skip>false</frontend.skip>
+    <skipTests>false</skipTests>
   </properties>
 
   <dependencies>
@@ -83,7 +84,7 @@
             <id>npm-test</id>
             <phase>generate-resources</phase>
             <goals><goal>exec</goal></goals>
-            <configuration><executable>npm</executable><arguments><argument>test</argument></arguments></configuration>
+            <configuration><skip>${skipTests}</skip><executable>npm</executable><arguments><argument>test</argument></arguments></configuration>
           </execution>
           <execution>
             <id>npm-build</id>

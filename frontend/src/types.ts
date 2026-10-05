@@ -44,7 +44,7 @@ export interface FileRow {
   path: string;
   language: string;
   score: number | null;
-  alive: number;
+  alive: number | null;
   changedLines: number | null;
   wholeFileScore: number | null;
 }

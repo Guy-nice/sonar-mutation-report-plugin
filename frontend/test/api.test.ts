@@ -16,9 +16,10 @@ function fakeFetch(handler: Handler) {
   return { fn, calls };
 }
 
+const hoursAgoIso = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
 const prList = (n: number) => ({
   pullRequests: Array.from({ length: n }, (_, i) => ({
-    key: String(i + 1), title: `t${i + 1}`, branch: `b${i + 1}`, base: 'main', analysisDate: '2026-10-05T10:00:00Z',
+    key: String(i + 1), title: `t${i + 1}`, branch: `b${i + 1}`, base: 'main', analysisDate: hoursAgoIso(2),
   })),
 });
 
@@ -48,6 +49,27 @@ describe('SonarApi requests', () => {
     expect(projects).toHaveLength(PAGE_SIZE + 2);
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain('qualifiers=TRK');
+  });
+});
+
+describe('loadProject dates and window', () => {
+  it("normalizes Sonar's +0000 offset so every browser can parse the date", async () => {
+    const { fn } = fakeFetch((url) => (url.includes('project_pull_requests')
+      ? { pullRequests: [{ key: '1', title: 't', branch: 'b', base: 'main', analysisDate: new Date(Date.now() - 3_600_000).toISOString().replace('Z', '+0000').replace(/\.\d+/, '') }] }
+      : { component: { measures: [] } }));
+    const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
+    expect(res.prs[0].pr.analysisDate).toMatch(/\+00:00$/);
+    expect(Number.isNaN(Date.parse(res.prs[0].pr.analysisDate))).toBe(false);
+  });
+  it('does not fetch measures for pull requests older than the 30 day window', async () => {
+    const { fn, calls } = fakeFetch((url) => (url.includes('project_pull_requests')
+      ? { pullRequests: [
+        { key: '1', title: 'new', branch: 'b', base: 'main', analysisDate: hoursAgoIso(5) },
+        { key: '2', title: 'old', branch: 'b', base: 'main', analysisDate: hoursAgoIso(24 * 60) }] }
+      : { component: { measures: [] } }));
+    const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
+    expect(res.prs.map((r) => r.pr.key)).toEqual(['1']);
+    expect(calls.filter((c) => c.includes('measures/component'))).toHaveLength(1);
   });
 });
 
@@ -161,6 +183,20 @@ describe('files, survivors, metrics', () => {
       { fileKey: 'p:a.ts', path: 'a.ts', line: 10, status: 'SURVIVED', operator: 'Eq' },
     ]);
     expect(calls[0]).toContain('pullRequest=feature%2Fx');
+    expect(calls[0]).toContain('resolved=false');
+    expect(calls[0]).toContain('components=p');
+    expect(calls[0]).not.toContain('componentKeys');
+  });
+  it('loadSurvivors paginates beyond 500 issues', async () => {
+    const issue = (i: number) => ({ component: 'p:a.ts', line: i + 1, rule: 'external_mutation-report:survived', message: 'detect the X mutation' });
+    const { fn, calls } = fakeFetch((url) => ({ paging: { total: PAGE_SIZE + 1 }, components: [{ key: 'p:a.ts', path: 'a.ts' }],
+      issues: url.includes('p=2') ? [issue(PAGE_SIZE)] : Array.from({ length: PAGE_SIZE }, (_, i) => issue(i)) }));
+    expect(await new SonarApi(fn).loadSurvivors('p', '1')).toHaveLength(PAGE_SIZE + 1);
+    expect(calls).toHaveLength(2);
+  });
+  it('a file without an alive measure has alive null, not 0', async () => {
+    const { fn } = fakeFetch(() => ({ paging: { total: 1 }, components: [{ key: 'p:a.ts', path: 'a.ts', language: 'ts', measures: [{ metric: 'new_mutation_score', period: { value: '50' } }] }] }));
+    expect((await new SonarApi(fn).loadFiles('p', '1'))[0].alive).toBeNull();
   });
   it('loadMetrics keeps only the Mutation Analysis domain', async () => {
     const { fn } = fakeFetch(() => ({ metrics: [
