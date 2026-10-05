@@ -8,6 +8,7 @@ describe('extension entry points', () => {
   beforeEach(() => {
     registered = {};
     vi.resetModules();
+    vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, json: async () => ({ components: [], paging: { total: 0 }, pullRequests: [] }) }));
     (window as unknown as { registerExtension: (k: string, f: Fn) => void }).registerExtension = (k, f) => {
       registered[k] = f;
     };
