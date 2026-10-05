@@ -10,9 +10,12 @@ describe('parseContext', () => {
       kind: 'pr', project: 'p', pr: '14',
     });
   });
-  it('a named branch', () => {
-    expect(parseContext({ component: { key: 'p' }, branchLike: { name: 'main', isMain: true } })).toEqual({
-      kind: 'branch', project: 'p', name: 'main',
+  it('the main branch is the default landing view, so it is the plain project view', () => {
+    expect(parseContext({ component: { key: 'p' }, branchLike: { name: 'main', isMain: true } })).toEqual({ kind: 'project', project: 'p' });
+  });
+  it('a non-main named branch', () => {
+    expect(parseContext({ component: { key: 'p' }, branchLike: { name: 'release-1', isMain: false } })).toEqual({
+      kind: 'branch', project: 'p', name: 'release-1',
     });
   });
   it('missing or odd options fall back to an empty project', () => {

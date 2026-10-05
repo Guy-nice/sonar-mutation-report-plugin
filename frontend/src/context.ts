@@ -13,7 +13,11 @@ export function parseContext(options: unknown): PageContext {
     if ('key' in b && ('base' in b || 'branch' in b || 'target' in b)) {
       return { kind: 'pr', project, pr: String(b.key) };
     }
-    if ('name' in b) return { kind: 'branch', project, name: String(b.name) };
+    if ('name' in b) {
+      // Sonar passes the main branch even when none was chosen: that is the normal landing view, not a branch.
+      if (b.isMain === true) return { kind: 'project', project };
+      return { kind: 'branch', project, name: String(b.name) };
+    }
   }
   return { kind: 'project', project };
 }
