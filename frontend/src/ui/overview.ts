@@ -13,6 +13,11 @@ const COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: 'latest', label: 'Latest PR' },
 ];
 
+function rateBar(pct: number): HTMLElement {
+  const color = pct < 60 ? '#ef6c00' : pct < 75 ? '#f9a825' : pct < 90 ? '#7cb342' : '#2e7d32';
+  return h('span', { class: 'md-bar' }, h('i', { style: `width:${Math.max(0, Math.min(100, pct))}%;background:${color}` }));
+}
+
 export function renderOverview(root: HTMLElement, data: DataSource, now: () => Date = () => new Date()): { reload(): Promise<void> } {
   injectStyles();
   const results = new Map<string, ProjectResult>();
@@ -54,7 +59,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     }
     tr.append(
       h('td', { 'data-col': 'failing', class: s.failingOpen ? 'md-fail' : 'md-muted' }, String(s.failingOpen)),
-      h('td', { 'data-col': 'passRate' }, fmtPct(s.passRate, s.passRate === null ? 1 : 0)),
+      h('td', { 'data-col': 'passRate' }, fmtPct(s.passRate, s.passRate === null ? 1 : 0), s.passRate === null ? null : rateBar(s.passRate)),
       h('td', { 'data-col': 'median' }, fmtPct(s.medianScore)),
       h('td', { 'data-col': 'adoption', class: s.total > 0 && s.withData === 0 ? 'md-fail' : '' }, `${s.withData} / ${s.total}${s.withData > 0 ? ' PRs' : ''}`),
       latestCell(s),

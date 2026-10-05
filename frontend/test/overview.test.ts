@@ -55,6 +55,14 @@ describe('overview', () => {
     expect(cell('policy', 'latest')).toContain('PASS');
   });
 
+  it('pass rate shows a bar when there is data and none when there is not', async () => {
+    mount(sample());
+    await flush();
+    root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
+    expect(root.querySelector('tr[data-project="timeoff"] [data-col="passRate"] .md-bar')).not.toBeNull();
+    expect(root.querySelector('tr[data-project="billing"] [data-col="passRate"] .md-bar')).toBeNull();
+  });
+
   it('clicking a sort header re-sorts and toggles direction', async () => {
     mount(sample());
     await flush();

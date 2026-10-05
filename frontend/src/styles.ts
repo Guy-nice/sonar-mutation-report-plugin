@@ -14,6 +14,7 @@ export const CSS = `
 .md-pill.fail{background:#fbe9ea;color:#d4333f}.md-pill.pass{background:#e6f6e6;color:#008a00}.md-pill.none{background:#eef1f6;color:#6b7686}
 .md-bar{display:inline-block;position:relative;width:90px;height:8px;background:#e1e6f0;border-radius:4px;vertical-align:middle;margin-left:6px}
 .md-bar i{display:block;height:100%;border-radius:4px}.md-bar b{position:absolute;top:-2px;width:2px;height:12px;background:#2c3e50}
+.md-table tr.selected{background:#eef4fa}.md-table tr[data-file]:hover{background:#f3f7fb}
 .md-tabs{display:flex;gap:4px;border-bottom:1px solid #cdd7e9;margin:12px 0}
 .md-tab{padding:6px 12px;border:0;border-bottom:2px solid transparent;color:#6b7686;background:none;cursor:pointer;font:inherit}
 .md-tab.on{border-color:#236a97;color:#236a97;font-weight:600}
