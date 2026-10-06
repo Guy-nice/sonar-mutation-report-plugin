@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.nice.sonar</groupId>
   <artifactId>sonar-mutation-report-plugin</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
   <packaging>sonar-plugin</packaging>
   <name>Mutation Report</name>
   <description>Language-agnostic: publishes mutation testing results produced by an external agent as Sonar measures.</description>
@@ -14,6 +14,8 @@
     <maven.compiler.release>17</maven.compiler.release>
     <sonar.api.version>10.11.0.2468</sonar.api.version>
     <sonar.impl.version>10.7.0.96327</sonar.impl.version>
+    <frontend.skip>false</frontend.skip>
+    <skipTests>false</skipTests>
   </properties>
 
   <dependencies>
@@ -62,6 +64,35 @@
           <pluginApiMinVersion>${sonar.api.version}</pluginApiMinVersion>
           <skipDependenciesPackaging>false</skipDependenciesPackaging>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <workingDirectory>${project.basedir}/frontend</workingDirectory>
+          <skip>${frontend.skip}</skip>
+        </configuration>
+        <executions>
+          <execution>
+            <id>npm-ci</id>
+            <phase>generate-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration><executable>npm</executable><arguments><argument>ci</argument></arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-test</id>
+            <phase>generate-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration><skip>${skipTests}</skip><executable>npm</executable><arguments><argument>test</argument></arguments></configuration>
+          </execution>
+          <execution>
+            <id>npm-build</id>
+            <phase>generate-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration><executable>npm</executable><arguments><argument>run</argument><argument>build</argument></arguments></configuration>
+          </execution>
+        </executions>
       </plugin>
     <plugin>
         <groupId>org.apache.maven.plugins</groupId>

@@ -7,9 +7,10 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v0.2.0 (full metric set).** Per-file measures with folder/project aggregation, new-code
-> variants, per-language measures, external issues for survivors. Verified on a local SonarQube 26.1
-> (see "Verification"). Not yet verified on sonartest or in production.
+> **Status: v0.3.0 (dashboard).** v0.2.0's full metric set (per-file measures with folder/project aggregation,
+> new-code variants, per-language measures, survivor issues) plus two read-only dashboard pages for pull
+> requests (see "Dashboard"). Verified on a local SonarQube 26.1 (see "Verification"). The dashboard's
+> pull request views are not yet verified on a server with pull request analysis (sonartest).
 
 ## Why a plugin
 
@@ -61,6 +62,52 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 | Density (per statement) | `density` (per **analyzable line**, not statement) |
 | Alive Total % / Total % | `alive_percent` / `total_percent` |
 | Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
+
+## Dashboard (v0.3.0)
+
+Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
+Sonar changes: no other metric, gate, rule or plugin is touched.
+
+- **Mutation overview** (top menu **More > Mutation overview**): for managers. Tiles (open PRs failing now,
+  PR pass rate, projects using mutation, median new-code score) and a sortable table per project: failing open
+  PRs (default sort), pass rate, median score, adoption, latest PR. Projects without mutation data sort last and
+  stay visible (the adoption gap); a checkbox hides them.
+- **Mutation** (project menu **More > Mutation**): the PR list for the last 30 days (status, new-code score with
+  a threshold mark, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
+  for the detail: verdict and score against the threshold, counts, and tabs Files (weakest first, with the
+  survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
+  The `main` branch is not summarized; opened on another branch the page shows a note and the PR list.
+
+Definitions (the same on every page): **failing** = an open PR whose latest `new_mutation_score` is below
+`mutation_threshold`; **pass rate** = passing PRs / PRs with mutation data; **adoption** = PRs with mutation
+data / all analyzed PRs; **median score** = median of the latest `new_mutation_score` per PR with data. Window:
+30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no data", never as 0. A PR with data but no score shows "NO SCORE" and
+is left out of the pass rate and the median.
+Sonar does not reliably say whether a PR is still open, so "open" means "analyzed in the last 7 days".
+
+How it works: the pages call Sonar's web API from the browser with the viewer's own session, so Sonar's
+permissions decide which projects and PRs each person sees. At most 6 requests run at once and results are
+cached for 5 minutes (Refresh clears the cache). Sized for about 30 projects and a few hundred PRs a month; far
+beyond that, aggregate outside Sonar (for example BI over the web API).
+
+Limits to know about:
+
+- Needs **pull request analysis** (Developer Edition or higher). Without it the pages say the server has no pull request analysis.
+- Sonar deletes inactive pull request analyses after its housekeeping period (30 days by default); the pages
+  can only show what Sonar still keeps.
+- The pages appear in the menu of every project on the server; projects not using mutation show "no data".
+- Not shown, because the plugin does not publish it: the agent's round, tools and version, and the PR author.
+- The first time a new third-party plugin version is detected, Sonar asks an administrator to accept the plugin
+  risk once.
+
+Build: `mvn package` also builds the frontend (`frontend/`, type-checked with `tsc`, bundled by esbuild into
+`src/main/resources/static/`), so it needs **Node 20 or newer and npm** (npm refuses older Node). `-DskipTests`
+also skips the frontend tests. A build with `-Dfrontend.skip=true` on a clean checkout has no JavaScript, and the
+Java test that looks for the bundles fails. Use `-Dfrontend.skip=true` to skip it
+when only the Java changed. `cd frontend && npm test` runs the frontend tests; `npm run dev` builds a local
+harness (`frontend/dev/index.html`, serve it over http) that renders both pages with fake data, no Sonar
+needed. `scripts/upload-mock-prs.sh` uploads several mock pull request analyses to a project, to see the pages
+with data. Design: `docs/specs/2026-10-05-mutation-dashboard-design.md`.
 
 ## Compatibility
 
@@ -219,8 +266,12 @@ a synthetic project with the sample report from `TestReports`:
   a "less than 80" condition, a 81.8 new-code score failed "less than 90").
 - External issues land on the right file and line.
 
-Still open: a pull request analysis (needs a branch-enabled edition or a PR-capable setup), a second Sonar
-version, and a run on sonartest.
+Dashboard (v0.3.0): both pages load and render in Sonar's UI and call the real web API on that server (it has no
+pull request analysis, so the PR endpoint answers 404 and the pages show "unavailable" with a retry); the full
+views are checked with the local harness and the frontend unit tests.
+
+Still open: the dashboard against real pull request analyses (sonartest), a second Sonar version, and a run on
+sonartest.
 
 To repeat on any server: scan a project that sets `sonar.mutation.reportPath`, then check
 `GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` and
