@@ -1,3 +1,8 @@
 target/
 .idea/
 *.iml
+.superpowers/
+frontend/node_modules/
+frontend/dev/dist/
+src/main/resources/static/
+.DS_Store
