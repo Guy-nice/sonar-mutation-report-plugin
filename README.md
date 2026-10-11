@@ -68,14 +68,15 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
 
-- **Mutation overview** (top menu **More > Mutation overview**): for managers. Tiles (median new-code score with
-  PR pass rate, open PRs failing now, projects using mutation, score trend), a "Median Score by Project" bar chart,
+- **Mutation overview** (top menu **More > Mutation overview**): for managers. Same four tiles as every project page
+  (median new-code score, open PRs failing now, PR pass rate, score trend; the subtitle says how many projects use
+  mutation), a "Median Score by Project" bar chart,
   a killed / alive "Mutant Distribution" card and a sortable table per project: failing open PRs (default sort),
   pass rate, median score, status band, adoption, latest PR. Projects without mutation data sort last and
   stay visible (the adoption gap); a checkbox hides them.
-- **Mutation** (project menu **More > Mutation**): tiles, a score-by-PR bar chart with threshold marks, a
-  killed / alive distribution card and the PR list for the last 30 days (status, new-code score with
-  a threshold mark, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
+- **Mutation** (project menu **More > Mutation**): same layout as the overview: tiles, a score-by-PR bar chart with threshold marks, a
+  killed / alive distribution card and the PR list for the last 30 days (gate PASS/FAIL, new-code score with
+  a threshold mark, status band, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
   for the detail: verdict and score against the threshold, counts, a weakest-files chart, a distribution card, and tabs Files (weakest first, with the
   survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
   The `main` branch is not summarized; opened on another branch the page shows a note and the PR list.

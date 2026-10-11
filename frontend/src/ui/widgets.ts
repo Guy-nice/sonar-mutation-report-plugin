@@ -1,10 +1,16 @@
 import { fmtInt, fmtPct } from '../format';
-import { BANDS, bandLabel, bandOf, type Band, type Distribution, type Trend } from '../model';
+import { BANDS, bandLabel, bandOf, computeTrend, isFailing, isOpen, isPassing, lastUpdated, median, type Band, type Distribution, type Trend } from '../model';
+import type { PrResult } from '../types';
 import { h, type Child } from './dom';
 
-export function pageHeader(title: string, subtitle: string): HTMLElement[] {
-  return [h('h1', {}, title), h('p', { class: 'md-sub' }, subtitle)];
+/** Title and subtitle, the same on every page. `facts` are extra subtitle parts, e.g. "5 of 6 projects use mutation". */
+export function pageHeader(title: string, prs: PrResult[], ...facts: string[]): HTMLElement[] {
+  const updated = lastUpdated(prs.filter((r) => r.hasData));
+  const parts = ['Mutation Score Dashboard', ...(updated ? [`Last updated: ${updated}`] : []), ...facts];
+  return [h('h1', {}, title), h('p', { class: 'md-sub' }, parts.join(' \u2022 '))];
 }
+
+export const DISTRIBUTION_TITLE = 'Mutant Distribution (last 30 days)';
 
 export function tile(name: string, label: string, value: string, sub: string, valueClass = ''): HTMLElement {
   return h('div', { class: 'md-kpi', 'data-tile': name },
@@ -24,6 +30,18 @@ export function trendTile(t: Trend): HTMLElement {
     ? 'needs scored PRs in both halves of the window'
     : `${t.delta >= 0 ? '+' : '−'}${Math.abs(t.delta).toFixed(1)} pts vs previous 15 days`;
   return tile('trend', 'Score trend', `${v.arrow} ${v.text}`, sub, t.direction === 'declining' ? 'md-fail' : '');
+}
+
+/** The four tiles on the overview and on every project page. `prs` are the PRs in the 30 day window. */
+export function summaryTiles(prs: PrResult[], now: Date): HTMLElement {
+  const scored = prs.filter((r) => r.hasData && r.score !== null);
+  const passing = scored.filter(isPassing).length;
+  const failing = prs.filter((r) => isFailing(r) && isOpen(r, now)).length;
+  return h('div', { class: 'md-kpis' },
+    tile('median', 'Median new-code score', fmtPct(median(scored.map((r) => r.score as number))), `${scored.length} scored PRs`),
+    tile('failingOpen', 'Open PRs failing now', String(failing), 'below the threshold', failing ? 'md-fail' : ''),
+    tile('passRate', 'PR pass rate', fmtPct(scored.length ? (passing / scored.length) * 100 : null, 0), `${passing} / ${scored.length} PRs`),
+    trendTile(computeTrend(prs, now)));
 }
 
 export function card(title: string, name: string, ...children: Child[]): HTMLElement {

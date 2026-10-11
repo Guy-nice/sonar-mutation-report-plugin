@@ -47,18 +47,18 @@ describe('PR list', () => {
 
   it('shows status, score and counts; dashes for a PR without data', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('14', 'status')).toBe('FAIL');
+    expect(cell('14', 'gate')).toBe('FAIL');
     expect(cell('14', 'score')).toContain('70.9%');
     expect(cell('14', 'survived')).toBe('19');
-    expect(cell('13', 'status')).toBe('PASS');
-    expect(cell('12', 'status')).toBe('NO DATA');
+    expect(cell('13', 'gate')).toBe('PASS');
+    expect(cell('12', 'gate')).toBe('NO DATA');
     expect(cell('12', 'score')).toBe('-');
     expect(cell('12', 'survived')).toBe('-');
   });
 
   it('a score equal to the threshold shows PASS', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('10', 'status')).toBe('PASS');
+    expect(cell('10', 'gate')).toBe('PASS');
   });
 
   it('status filter', async () => {
@@ -100,7 +100,7 @@ describe('PR list', () => {
   it('a PR with data but no score shows NO SCORE and stays out of the pass rate', async () => {
     const d = new FakeData([project('p', [makePr('1', { score: 90 }), makePr('2', { score: null })])]);
     await renderPrList(root, d, { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('2', 'status')).toBe('NO SCORE');
+    expect(cell('2', 'gate')).toBe('NO SCORE');
     expect(tile('passRate')).toBe('100%');
   });
 

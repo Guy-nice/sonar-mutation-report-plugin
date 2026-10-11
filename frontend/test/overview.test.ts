@@ -74,7 +74,7 @@ describe('overview', () => {
     await flush();
     expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
     expect(tile('failingOpen')).toBe('2');
-    expect(tile('projects')).toBe('2 / 3');
+    expect(root.querySelector('.md-sub')?.textContent).toContain('2 of 3 projects use mutation');
   });
 
   it('projects without data are visible by default so the adoption gap shows; the filter hides them', async () => {
@@ -127,7 +127,7 @@ describe('overview', () => {
     expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('24');
     expect(root.querySelector('[data-tile="trend"]')).not.toBeNull();
     expect(root.querySelector('.md-legend')?.textContent).toContain('Needs Work (<75%)');
-    expect(root.querySelector('.md-sub')?.textContent).toBe('Mutation Score Dashboard \u2022 Last updated: 2026-10-05');
+    expect(root.querySelector('.md-sub')?.textContent).toBe('Mutation Score Dashboard \u2022 Last updated: 2026-10-05 \u2022 2 of 3 projects use mutation');
   });
 
   it('clicking a sort header re-sorts and toggles direction', async () => {

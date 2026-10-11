@@ -1,12 +1,12 @@
 import { fmtAge, fmtPct, projectPageUrl } from '../format';
 import {
-  computeTrend, distribution, inWindow, isFailing, isNoPrAnalysis, lastUpdated, sortProjects, summarizeOverview, summarizeProject,
+  distribution, inWindow, isFailing, isNoPrAnalysis, sortProjects, summarizeOverview, summarizeProject,
   type ProjectSummary, type SortDir, type SortKey,
 } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef, ProjectResult } from '../types';
 import { clear, h } from './dom';
-import { bandPill, barChart, card, distributionCard, legend, pageHeader, tile, trendTile } from './widgets';
+import { DISTRIBUTION_TITLE, bandPill, barChart, card, distributionCard, legend, pageHeader, summaryTiles } from './widgets';
 
 const TITLE = 'Mutation overview';
 
@@ -92,7 +92,6 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
     summaries = sortProjects(summaries, sortKey, sortDir);
 
-    const updated = lastUpdated(windowPrs.filter((p) => p.hasData));
     const scoreBars = all
       .filter((s) => s.medianScore !== null)
       .sort((a, b) => (b.medianScore as number) - (a.medianScore as number) || a.name.localeCompare(b.name))
@@ -111,15 +110,11 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
 
     clear(body);
     body.append(
-      ...pageHeader(TITLE, `Mutation Score Dashboard${updated ? ` \u2022 Last updated: ${updated}` : ''}`),
-      h('div', { class: 'md-kpis' },
-        tile('median', 'Median new-code score', fmtPct(o.medianScore), `PR pass rate ${fmtPct(o.passRate, 0)} (30d)`),
-        tile('failingOpen', 'Open PRs failing now', String(o.failingOpen), 'below their project threshold', o.failingOpen ? 'md-fail' : ''),
-        tile('projects', 'Projects using mutation', `${o.projectsWithData} / ${o.projectsTotal}`, `${o.projectsTotal - o.projectsWithData} without data`),
-        trendTile(computeTrend(windowPrs, now()))),
+      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} of ${o.projectsTotal} projects use mutation`),
+      summaryTiles(windowPrs, now()),
       h('div', { class: 'md-cards' },
         card('Median Score by Project', 'scores', barChart(scoreBars, loading ? 'Loading...' : 'No project has a score yet.')),
-        distributionCard('Mutant Distribution (PRs, last 30 days)', distribution(windowPrs))),
+        distributionCard(DISTRIBUTION_TITLE, distribution(windowPrs))),
       card('Project Details', 'details',
         h('div', { class: 'md-filters' },
           h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
