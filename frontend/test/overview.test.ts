@@ -110,12 +110,24 @@ describe('overview', () => {
     expect(cell('policy', 'latest')).toContain('PASS');
   });
 
-  it('pass rate shows a bar when there is data and none when there is not', async () => {
+  it('status shows the score band of the median; projects without data have no band', async () => {
     mount(sample());
     await flush();
+    expect(cell('billing', 'status')).toBe('No data');
     root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
-    expect(root.querySelector('tr[data-project="timeoff"] [data-col="passRate"] .md-bar')).not.toBeNull();
-    expect(root.querySelector('tr[data-project="billing"] [data-col="passRate"] .md-bar')).toBeNull();
+    expect(root.querySelector('tr[data-project="timeoff"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('needs');
+    expect(root.querySelector('tr[data-project="policy"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('excellent');
+  });
+
+  it('dashboard cards: score bars sorted best first, mutant distribution, trend tile and legend', async () => {
+    mount(sample());
+    await flush();
+    expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['policy', 'timeoff']);
+    expect(root.querySelector('[data-card="distribution"] [data-part="killed"]')?.textContent).toBe('136');
+    expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('24');
+    expect(root.querySelector('[data-tile="trend"]')).not.toBeNull();
+    expect(root.querySelector('.md-legend')?.textContent).toContain('Needs Work (<75%)');
+    expect(root.querySelector('.md-sub')?.textContent).toBe('Mutation Score Dashboard \u2022 Last updated: 2026-10-05');
   });
 
   it('clicking a sort header re-sorts and toggles direction', async () => {

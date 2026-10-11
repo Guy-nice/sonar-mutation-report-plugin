@@ -39,7 +39,8 @@ describe('PR detail', () => {
   it('tiles show counts; timeout/memory/unknown are summed; absent values are dashes', async () => {
     await open();
     expect(text('[data-tile="total"] .v')).toBe('127');
-    expect(text('[data-tile="survived"] .v')).toBe('19');
+    expect(text('[data-tile="alive"] .v')).toBe('31');
+    expect(text('[data-tile="alive"] .s')).toBe('19 survived, 12 no coverage');
     expect(text('[data-tile="other"] .v')).toBe('6');
     expect(text('[data-tile="strength"] .v')).toBe('82.6%');
     const sparse = makePr('15', { measures: { new_mutation_score: 90 } });
@@ -47,6 +48,15 @@ describe('PR detail', () => {
     expect(text('[data-tile="total"] .v')).toBe('-');
     expect(text('[data-tile="other"] .v')).toBe('-');
     expect(text('[data-tile="strength"] .v')).toBe('-');
+  });
+
+  it('cards: weakest files as bars (scored only, weakest first) and the killed / alive distribution', async () => {
+    await open();
+    await vi.waitFor(() => expect(root.querySelectorAll('[data-card="files"] [data-bar]')).toHaveLength(2));
+    expect([...root.querySelectorAll('[data-card="files"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['p:dates.ts', 'p:a.ts']);
+    expect(text('[data-card="distribution"] [data-part="killed"]')).toBe('90');
+    expect(text('[data-card="distribution"] [data-part="alive"]')).toBe('31');
+    expect(text('[data-card="distribution"]')).toContain('6 more timed out');
   });
 
   it('files tab: weakest first, no-score files last', async () => {

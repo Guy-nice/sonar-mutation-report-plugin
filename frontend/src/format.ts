@@ -27,8 +27,3 @@ export function codeUrl(projectKey: string, prKey: string, fileKey: string, line
   const base = `${sonarBase()}/code?id=${encodeURIComponent(projectKey)}&pullRequest=${encodeURIComponent(prKey)}&selected=${encodeURIComponent(fileKey)}`;
   return line ? `${base}&line=${line}` : base;
 }
-
-export function scoreColor(score: number | null, threshold: number): string {
-  if (score === null) return '#8a95a5';
-  return score >= threshold ? '#00aa00' : '#ed7d20';
-}

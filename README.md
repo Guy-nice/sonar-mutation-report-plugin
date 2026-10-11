@@ -68,17 +68,24 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
 
-- **Mutation overview** (top menu **More > Mutation overview**): for managers. Tiles (open PRs failing now,
-  PR pass rate, projects using mutation, median new-code score) and a sortable table per project: failing open
-  PRs (default sort), pass rate, median score, adoption, latest PR. Projects without mutation data sort last and
+- **Mutation overview** (top menu **More > Mutation overview**): for managers. Tiles (median new-code score with
+  PR pass rate, open PRs failing now, projects using mutation, score trend), a "Median Score by Project" bar chart,
+  a killed / alive "Mutant Distribution" card and a sortable table per project: failing open PRs (default sort),
+  pass rate, median score, status band, adoption, latest PR. Projects without mutation data sort last and
   stay visible (the adoption gap); a checkbox hides them.
-- **Mutation** (project menu **More > Mutation**): the PR list for the last 30 days (status, new-code score with
+- **Mutation** (project menu **More > Mutation**): tiles, a score-by-PR bar chart with threshold marks, a
+  killed / alive distribution card and the PR list for the last 30 days (status, new-code score with
   a threshold mark, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
-  for the detail: verdict and score against the threshold, counts, and tabs Files (weakest first, with the
+  for the detail: verdict and score against the threshold, counts, a weakest-files chart, a distribution card, and tabs Files (weakest first, with the
   survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
   The `main` branch is not summarized; opened on another branch the page shows a note and the PR list.
 
-Definitions (the same on every page): **failing** = an open PR whose latest `new_mutation_score` is below
+![Dashboard mock](docs/screenshots/dashboard-dev-harness.png)
+
+Definitions (the same on every page): **status band** = Excellent (90%+), Good (85-89%), Fair (75-84%), Needs Work
+(<75%) of a score (a presentation aid; the quality gate is still the threshold); **trend** = median new-code score
+of the last 15 days minus the median of the 15 days before (Improving or Declining at 1 point or more, else Stable);
+**mutant distribution** = killed vs alive (survived + no coverage) mutants summed over the PRs in the window; **failing** = an open PR whose latest `new_mutation_score` is below
 `mutation_threshold`; **pass rate** = passing PRs / PRs with mutation data; **adoption** = PRs with mutation
 data / all analyzed PRs; **median score** = median of the latest `new_mutation_score` per PR with data. Window:
 30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no data", never as 0. A PR with data but no score shows "NO SCORE" and

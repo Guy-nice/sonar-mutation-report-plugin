@@ -1,22 +1,25 @@
 import { fmtAge, fmtPct, projectPageUrl } from '../format';
-import { isFailing, isNoPrAnalysis, sortProjects, summarizeOverview, summarizeProject, type ProjectSummary, type SortDir, type SortKey } from '../model';
+import {
+  computeTrend, distribution, inWindow, isFailing, isNoPrAnalysis, lastUpdated, sortProjects, summarizeOverview, summarizeProject,
+  type ProjectSummary, type SortDir, type SortKey,
+} from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef, ProjectResult } from '../types';
 import { clear, h } from './dom';
+import { bandPill, barChart, card, distributionCard, legend, pageHeader, tile, trendTile } from './widgets';
 
-const COLUMNS: Array<{ key: SortKey; label: string }> = [
+const TITLE = 'Mutation overview';
+
+/** `num` columns are right-aligned. Status has no sort key: it is a band of the median score. */
+const COLUMNS: Array<{ key: SortKey | null; label: string; num?: boolean }> = [
   { key: 'name', label: 'Project' },
-  { key: 'failingOpen', label: 'Failing open PRs' },
-  { key: 'passRate', label: 'Pass rate 30d' },
-  { key: 'medianScore', label: 'Median score' },
-  { key: 'adoption', label: 'Adoption' },
+  { key: 'failingOpen', label: 'Failing open PRs', num: true },
+  { key: 'passRate', label: 'Pass rate 30d', num: true },
+  { key: 'medianScore', label: 'Median score', num: true },
+  { key: null, label: 'Status' },
+  { key: 'adoption', label: 'Adoption', num: true },
   { key: 'latest', label: 'Latest PR' },
 ];
-
-function rateBar(pct: number): HTMLElement {
-  const color = pct < 60 ? '#ef6c00' : pct < 75 ? '#f9a825' : pct < 90 ? '#7cb342' : '#2e7d32';
-  return h('span', { class: 'md-bar' }, h('i', { style: `width:${Math.max(0, Math.min(100, pct))}%;background:${color}` }));
-}
 
 export function renderOverview(root: HTMLElement, data: DataSource, now: () => Date = () => new Date()): { reload(): Promise<void>; dispose(): void } {
   injectStyles();
@@ -58,16 +61,17 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     tr.append(h('td', {}, h('a', { href: projectPageUrl(s.key) }, h('b', {}, s.name))));
     if (s.error) {
       tr.append(
-        h('td', { 'data-col': 'failing', colspan: 5 }, h('span', { class: 'md-muted' }, `unavailable (${s.error}) `),
+        h('td', { 'data-col': 'failing', colspan: 6 }, h('span', { class: 'md-muted' }, `unavailable (${s.error}) `),
           h('button', { class: 'md-link', 'data-action': 'retry', onclick: () => retry(s.key) }, 'retry')),
       );
       return tr;
     }
     tr.append(
-      h('td', { 'data-col': 'failing', class: s.failingOpen ? 'md-fail' : 'md-muted' }, String(s.failingOpen)),
-      h('td', { 'data-col': 'passRate' }, fmtPct(s.passRate, s.passRate === null ? 1 : 0), s.passRate === null ? null : rateBar(s.passRate)),
-      h('td', { 'data-col': 'median' }, fmtPct(s.medianScore)),
-      h('td', { 'data-col': 'adoption', class: s.total > 0 && s.withData === 0 ? 'md-fail' : '' }, `${s.withData} / ${s.total}${s.withData > 0 ? ' PRs' : ''}`),
+      h('td', { 'data-col': 'failing', class: `num ${s.failingOpen ? 'md-fail' : 'md-muted'}` }, String(s.failingOpen)),
+      h('td', { 'data-col': 'passRate', class: 'num' }, fmtPct(s.passRate, s.passRate === null ? 1 : 0)),
+      h('td', { 'data-col': 'median', class: 'num' }, fmtPct(s.medianScore)),
+      h('td', { 'data-col': 'status' }, bandPill(s.medianScore)),
+      h('td', { 'data-col': 'adoption', class: `num ${s.total > 0 && s.withData === 0 ? 'md-fail' : ''}` }, `${s.withData} / ${s.total}${s.withData > 0 ? ' PRs' : ''}`),
       latestCell(s),
     );
     return tr;
@@ -77,47 +81,61 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const list = [...results.values()];
     if (!loading && list.length > 0 && list.every((r) => isNoPrAnalysis(r.error))) {
       clear(body);
-      body.append(h('h1', {}, 'Mutation overview'),
+      body.append(h('h1', {}, TITLE),
         h('p', { class: 'md-note' }, 'This Sonar server has no pull request analysis (Developer Edition or higher is needed), so there is nothing to show.'));
       return;
     }
     const o = summarizeOverview(list, now());
-    let summaries = list.map((r) => summarizeProject(r, now()));
+    const windowPrs = list.filter((r) => !r.error).flatMap((r) => r.prs.filter((p) => inWindow(p, now())));
+    const all = list.map((r) => summarizeProject(r, now()));
+    let summaries = all;
     if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
     summaries = sortProjects(summaries, sortKey, sortDir);
 
-    const kpi = (name: string, v: string, label: string, cls = '') =>
-      h('div', { class: 'md-kpi', 'data-tile': name }, h('div', { class: `v ${cls}` }, v), h('div', { class: 'l' }, label));
+    const updated = lastUpdated(windowPrs.filter((p) => p.hasData));
+    const scoreBars = all
+      .filter((s) => s.medianScore !== null)
+      .sort((a, b) => (b.medianScore as number) - (a.medianScore as number) || a.name.localeCompare(b.name))
+      .map((s) => ({ key: s.key, label: s.name, pct: s.medianScore as number }));
 
-    const head = h('tr', {}, ...COLUMNS.map((c) =>
-      h('th', { class: `sortable ${sortKey === c.key ? sortDir : ''}`, 'data-sort': c.key, onclick: () => {
-        if (sortKey === c.key) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
-        else { sortKey = c.key; sortDir = c.key === 'name' ? 'asc' : 'desc'; }
+    const head = h('tr', {}, ...COLUMNS.map((c) => {
+      const num = c.num ? 'num ' : '';
+      if (c.key === null) return h('th', { class: num.trim() }, c.label);
+      const key = c.key;
+      return h('th', { class: `sortable ${num}${sortKey === key ? sortDir : ''}`, 'data-sort': key, onclick: () => {
+        if (sortKey === key) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+        else { sortKey = key; sortDir = key === 'name' ? 'asc' : 'desc'; }
         paint();
-      } }, c.label)));
+      } }, c.label);
+    }));
 
     clear(body);
     body.append(
-      h('h1', {}, 'Mutation overview'),
+      ...pageHeader(TITLE, `Mutation Score Dashboard${updated ? ` \u2022 Last updated: ${updated}` : ''}`),
       h('div', { class: 'md-kpis' },
-        kpi('failingOpen', String(o.failingOpen), 'open PRs failing now', o.failingOpen ? 'md-fail' : ''),
-        kpi('passRate', fmtPct(o.passRate, 0), 'PR pass rate (30d)'),
-        kpi('projects', `${o.projectsWithData} / ${o.projectsTotal}`, 'projects using mutation'),
-        kpi('median', fmtPct(o.medianScore), 'median new-code score')),
-      h('div', { class: 'md-filters' },
-        h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
-          onlyWithData = (e.target as HTMLInputElement).checked;
-          paint();
-        } }), ' Only projects with mutation data'),
-        h('span', {}, 'Last 30 days'),
-        h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh'),
-        loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} projects...`) : null),
-      projects.length === 0 && !loading
-        ? h('p', { class: 'md-muted' }, 'No projects found.')
-        : summaries.length === 0 && !loading
-          ? h('p', { class: 'md-muted' }, 'No projects with mutation data.')
-          : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row))),
-      h('p', { class: 'md-muted' }, '"Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).'),
+        tile('median', 'Median new-code score', fmtPct(o.medianScore), `PR pass rate ${fmtPct(o.passRate, 0)} (30d)`),
+        tile('failingOpen', 'Open PRs failing now', String(o.failingOpen), 'below their project threshold', o.failingOpen ? 'md-fail' : ''),
+        tile('projects', 'Projects using mutation', `${o.projectsWithData} / ${o.projectsTotal}`, `${o.projectsTotal - o.projectsWithData} without data`),
+        trendTile(computeTrend(windowPrs, now()))),
+      h('div', { class: 'md-cards' },
+        card('Median Score by Project', 'scores', barChart(scoreBars, loading ? 'Loading...' : 'No project has a score yet.')),
+        distributionCard('Mutant Distribution (PRs, last 30 days)', distribution(windowPrs))),
+      card('Project Details', 'details',
+        h('div', { class: 'md-filters' },
+          h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
+            onlyWithData = (e.target as HTMLInputElement).checked;
+            paint();
+          } }), ' Only projects with mutation data'),
+          h('span', {}, 'Last 30 days'),
+          h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh'),
+          loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} projects...`) : null),
+        projects.length === 0 && !loading
+          ? h('p', { class: 'md-muted' }, 'No projects found.')
+          : summaries.length === 0 && !loading
+            ? h('p', { class: 'md-muted' }, 'No projects with mutation data.')
+            : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row))),
+        legend(),
+        h('p', { class: 'md-note2' }, 'Status is the band of the median score; the quality gate is each project\'s threshold. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')),
     );
   }
 
@@ -145,7 +163,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       if (id !== loadId) return;
       loading = false;
       clear(body);
-      body.append(h('h1', {}, 'Mutation overview'), h('p', { class: 'md-fail' }, `Could not load projects: ${e instanceof Error ? e.message : String(e)}`));
+      body.append(h('h1', {}, TITLE), h('p', { class: 'md-fail' }, `Could not load projects: ${e instanceof Error ? e.message : String(e)}`));
       return;
     }
     paint();

@@ -25,8 +25,24 @@ describe('PR list', () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
     expect(keys()).toEqual(['14', '13', '12', '10']);
     expect(tile('failingOpen')).toBe('1');
-    expect(tile('withData')).toBe('3 / 4');
+    expect(root.querySelector('.md-sub')?.textContent).toContain('3 of 4 PRs have mutation data');
     expect(tile('passRate')).toBe('67%');
+  });
+
+  it('cards: recent PR score bars and the mutant distribution', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['14', '13', '10']);
+    expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('41');
+  });
+
+  it('changing a filter keeps the chosen option and repaints only the table', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    const select = root.querySelector<HTMLSelectElement>('select[data-filter="status"]')!;
+    select.value = 'failing';
+    select.dispatchEvent(new Event('change'));
+    expect(keys()).toEqual(['14']);
+    expect(root.querySelector<HTMLSelectElement>('select[data-filter="status"]')).toBe(select);
+    expect(select.value).toBe('failing');
   });
 
   it('shows status, score and counts; dashes for a PR without data', async () => {
