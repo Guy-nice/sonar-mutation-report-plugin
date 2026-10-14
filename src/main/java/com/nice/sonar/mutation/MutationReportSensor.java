@@ -34,6 +34,8 @@ public class MutationReportSensor implements Sensor {
 
   private static final Logger LOG = Loggers.get(MutationReportSensor.class);
   public static final String REPORT_PATH = "sonar.mutation.reportPath";
+  /** Optional group shown beside the component on the overview, e.g. a team or product area. */
+  public static final String PORTFOLIO = "sonar.mutation.portfolio";
   public static final String ENGINE_ID = "mutation-report";
 
   @Override
@@ -74,6 +76,19 @@ public class MutationReportSensor implements Sensor {
     if (report.threshold != null) {
       save(context, project, MutationMetrics.thresholdKey(), Metric.ValueType.PERCENT, report.threshold);
     }
+    if (report.scoreBefore != null) {
+      save(context, project, MutationMetrics.scoreBeforeKey(), Metric.ValueType.PERCENT, report.scoreBefore);
+    }
+    if (report.durationSec != null) {
+      save(context, project, MutationMetrics.durationKey(), Metric.ValueType.INT, report.durationSec);
+    }
+    context.config().get(PORTFOLIO).map(String::trim).filter(s -> !s.isEmpty()).ifPresent(p ->
+        context.<String>newMeasure().forMetric(portfolioMetric()).on(project).withValue(p).save());
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static Metric portfolioMetric() {
+    return new Metric.Builder(MutationMetrics.portfolioKey(), MutationMetrics.portfolioKey(), Metric.ValueType.STRING).create();
   }
 
   private static void publishLanguages(SensorContext context, Report report) {
