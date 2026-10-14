@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BANDS, bandLabel, bandOf, change, distribution, gateOf, hasBefore, lastUpdated,
-  inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, mean, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject, wasPassing,
+  inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, mean, round1, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject, wasPassing,
 } from '../src/model';
 import type { FileRow } from '../src/types';
 import { NOW, improved, makePr, noData, project } from './fixtures';
@@ -73,6 +73,14 @@ describe('before and after the agent', () => {
     expect(change(makePr('1'))).toBeNull();
     expect(change(improved('1', 50, 60, 60, { score: null }))).toBeNull();
     expect(hasBefore(noData('1'))).toBe(false);
+  });
+  it('change uses the one-decimal values shown: no improvement is +0.0, a 56.25 tie rounds like Sonar', () => {
+    expect(change(improved('1', 56.25, 56.3, 1))).toBe(0);
+    expect(change(improved('1', 62.5, 87.5, 1))).toBe(25);
+    expect(change(improved('1', 43.75, 68.8, 1))).toBe(25);
+    expect(change(improved('1', 70.04, 69.96, 1))).toBe(0);
+    expect(round1(56.25)).toBe(56.3);
+    expect(round1(0.05)).toBe(0.1);
   });
   it('was passing compares the first score with the threshold, at the edge too', () => {
     expect(wasPassing(improved('1', 80, 90, 1))).toBe(true);

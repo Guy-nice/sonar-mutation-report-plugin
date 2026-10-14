@@ -7,12 +7,11 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v0.4.0 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
+> **Status: v0.4.1 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
 > folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
 > dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
-> after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 (see
-> "Verification"). The dashboard's pull request views are not yet verified on a server with pull request
-> analysis (sonartest).
+> after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 and, with
+> mock pull request analyses, on sonartest (see "Verification"). Not yet verified with real agent runs on sonartest.
 
 ## Why a plugin
 
@@ -73,7 +72,7 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 | Alive Total % / Total % | `alive_percent` / `total_percent` |
 | Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
 
-## Dashboard (v0.4.0)
+## Dashboard (v0.4.1)
 
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
@@ -84,8 +83,11 @@ Sonar changes: no other metric, gate, rule or plugin is touched.
   final, black tick = threshold), a killed / alive "Mutant Distribution" card and a "Component changes" table:
   component, portfolio, before, after, change (pts), mutation gate (Fail -> Pass), status band, last scan date,
   time taken, plus a last row with the average. Every data column sorts (default: weakest After first).
-  Components without mutation data sort last and stay visible (the adoption gap); a checkbox hides them, and a
-  Portfolio filter appears when any component has a portfolio.
+  Components without mutation data are hidden by default (a server can hold thousands of projects; the checkbox
+  label says how many are hidden) and sort last when shown (the adoption gap). A Portfolio filter appears when any
+  component has a portfolio. Projects that had mutation data on an earlier visit load first (kept in the browser's
+  local storage), so a big server fills in quickly; the table repaints in batches while projects stream in.
+  Measured on sonartest (2,084 projects): about 60 s until every project is loaded.
 - **Mutation** (project menu **More > Mutation**): same layout as the overview: tiles, a before -> after bar chart
   per pull request, a killed / alive distribution card and the PR list for the last 30 days (last scan, before,
   after, change, mutation gate, status band, time taken, survived, no coverage; filters by status and date). Click
@@ -97,7 +99,7 @@ Sonar changes: no other metric, gate, rule or plugin is touched.
 ![Dashboard mock](docs/screenshots/dashboard-dev-harness.png)
 
 Definitions (the same on every page): **before** = `new_mutation_score_before`, the new-code score of the agent's
-first run; **after** = `new_mutation_score`, the final score; **change** = after minus before, in points;
+first run; **after** = `new_mutation_score`, the final score; **change** = after minus before, in points, from the one-decimal values shown (ties round up, like Sonar);
 **mutation gate** = the new-code score against `mutation_threshold`, before and after the agent; **status band** =
 Excellent (90%+), Good (85-89%), Fair (75-84%), Needs Work (<75%) of the after score (a presentation aid; the quality
 gate is still the threshold); **component row** = the component's most recent PR with mutation data (its scan date,
@@ -301,8 +303,16 @@ Dashboard (v0.3.0): both pages load and render in Sonar's UI and call the real w
 pull request analysis, so the PR endpoint answers 404 and the pages show "unavailable" with a retry); the full
 views are checked with the local harness and the frontend unit tests.
 
-Still open: the dashboard against real pull request analyses (sonartest), a second Sonar version, and a run on
-sonartest.
+sonartest (SonarQube Server 2026.1.2 Enterprise, plugin 0.4.0 installed), 2026-10-14: six mock pull request
+analyses were scanned into `qa-rm-testing-gates` (threshold 80) and read back through the web API. The gate
+followed the score: 87.5% and exactly 80.0% passed; 78.9%, 68.8% and 56.3% failed on `new_mutation_score`; a
+report without the run facts showed `-` for before and time. Both pages were opened in a browser against the live
+API: tiles, before/after bars, gate transitions, status bands, last scan and time taken all matched the uploaded
+numbers. It also showed what a server with 2,084 projects needs: no-data components hidden by default, batched
+repaints and adopters loading first (all in 0.4.1; the first load went from over 3 minutes to about 60 s). A
+tie such as 56.25 was +0.1 on a PR the agent had not improved; the agent now rounds ties up too.
+
+Still open: the dashboard with real agent runs on sonartest and a second Sonar version.
 
 To repeat on any server: scan a project that sets `sonar.mutation.reportPath`, then check
 `GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` and

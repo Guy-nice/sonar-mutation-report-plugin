@@ -11,7 +11,10 @@ const tile = (name: string) => root.querySelector(`[data-tile="${name}"] .v`)?.t
 const tileSub = (name: string) => root.querySelector(`[data-tile="${name}"] .s`)?.textContent ?? '';
 const total = (i: number) => root.querySelector('tr[data-row="total"]')?.children[i]?.textContent ?? '';
 
+const showAll = () => root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
+
 beforeEach(() => {
+  localStorage.clear();
   document.body.innerHTML = '<div id="r"></div>';
   root = document.getElementById('r')!;
 });
@@ -21,6 +24,46 @@ const sample = () => new FakeData([
   project('policy', [improved('5', 78, 95, 120, { hours: 5, portfolio: 'Platform' })]),
   project('billing', [noData('6'), noData('7')]),
 ]);
+
+describe('a big server', () => {
+  it('repaints in batches, not once per project, and ends with every project loaded', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => project(`p${i}`, [improved(String(i), 50, 70, 60)]));
+    let paints = 0;
+    const obs = new MutationObserver(() => { paints++; });
+    obs.observe(root, { childList: true, subtree: true });
+    mount(new FakeData(many));
+    await flush();
+    obs.disconnect();
+    expect(rows()).toHaveLength(60);
+    expect(paints).toBeLessThan(60 * 3);
+  });
+
+  it('projects that had mutation data load first next time, and are remembered', async () => {
+    const loaded: string[] = [];
+    class Spy extends FakeData {
+      async loadProject(p: { key: string; name: string }) { loaded.push(p.key); return super.loadProject(p); }
+    }
+    const data = () => new Spy([project('a', [noData('1')]), project('b', [improved('2', 50, 70, 60)]), project('c', [noData('3')])]);
+    mount(data());
+    await flush();
+    expect(loaded).toEqual(['a', 'b', 'c']);
+    expect(JSON.parse(localStorage.getItem('mutation-dashboard-adopters:') ?? '[]')).toEqual(['b']);
+    loaded.length = 0;
+    document.body.innerHTML = '<div id="r"></div>';
+    root = document.getElementById('r')!;
+    mount(data());
+    await flush();
+    expect(loaded).toEqual(['b', 'a', 'c']);
+  });
+
+  it('unusable storage never breaks the page', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    mount(sample());
+    await flush();
+    expect(rows()).toEqual(['timeoff', 'policy']);
+    spy.mockRestore();
+  });
+});
 
 describe('overview honesty and robustness', () => {
   it('a PR with data but no score shows dashes and no gate result, never PASS', async () => {
@@ -101,24 +144,27 @@ describe('overview', () => {
     expect(tileSub('passRate')).toBe('1 / 1 PRs');
   });
 
-  it('default order is weakest After first; components without data last', async () => {
+  it('default order is weakest After first; components without data last once shown', async () => {
     mount(sample());
     await flush();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
-  });
-
-  it('components without data are visible by default so the adoption gap shows; the filter hides them', async () => {
-    mount(sample());
-    await flush();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
-    root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
     expect(rows()).toEqual(['timeoff', 'policy']);
+    showAll();
+    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
   });
 
-  it('filter on and nobody adopted: says so instead of an empty table', async () => {
+  it('components without data are hidden by default, with their count; unchecking shows the adoption gap', async () => {
+    mount(sample());
+    await flush();
+    expect(rows()).toEqual(['timeoff', 'policy']);
+    expect(root.querySelector('.md-filters label')?.textContent).toContain('(1 without data hidden)');
+    showAll();
+    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
+    expect(root.querySelector('.md-filters label')?.textContent).not.toContain('hidden');
+  });
+
+  it('nobody adopted: says so instead of an empty table', async () => {
     mount(new FakeData([project('billing', [noData('6')])]));
     await flush();
-    root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
     expect(root.textContent).toContain('No components with mutation data');
   });
 
@@ -146,6 +192,7 @@ describe('overview', () => {
   it('shows dashes, not zeros, for components without data', async () => {
     mount(sample());
     await flush();
+    showAll();
     for (const col of ['before', 'after', 'change', 'time']) expect(cell('billing', col)).toBe('-');
     expect(cell('billing', 'gate')).toBe('-→-');
     expect(cell('billing', 'scan')).toBe('never scanned');
@@ -172,6 +219,7 @@ describe('overview', () => {
   it('status shows the score band of the After score; components without data have no band', async () => {
     mount(sample());
     await flush();
+    showAll();
     expect(cell('billing', 'status')).toBe('No data');
     expect(root.querySelector('tr[data-project="timeoff"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('needs');
     expect(root.querySelector('tr[data-project="policy"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('excellent');
@@ -198,6 +246,7 @@ describe('overview', () => {
   it('clicking a sort header re-sorts and toggles direction', async () => {
     mount(sample());
     await flush();
+    showAll();
     const th = root.querySelector<HTMLElement>('th[data-sort="name"]')!;
     th.click();
     expect(rows()).toEqual(['billing', 'policy', 'timeoff']);
@@ -211,9 +260,9 @@ describe('overview', () => {
     expect([...root.querySelectorAll('th[data-sort]')].map((t) => t.getAttribute('data-sort')))
       .toEqual(['name', 'portfolio', 'before', 'after', 'change', 'scan', 'time']);
     root.querySelector<HTMLElement>('th[data-sort="change"]')!.click();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
+    expect(rows()).toEqual(['timeoff', 'policy']);
     root.querySelector<HTMLElement>('th[data-sort="before"]')!.click();
-    expect(rows()).toEqual(['policy', 'timeoff', 'billing']);
+    expect(rows()).toEqual(['policy', 'timeoff']);
   });
 
   it('the portfolio filter appears when a portfolio exists and narrows the rows', async () => {
@@ -226,8 +275,10 @@ describe('overview', () => {
     expect(rows()).toEqual(['policy']);
     const again = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
     expect(again.value).toBe('Platform');
-    again.value = '\u0000none';
-    again.dispatchEvent(new Event('change'));
+    showAll();
+    const third = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
+    third.value = '\u0000none';
+    third.dispatchEvent(new Event('change'));
     expect(rows()).toEqual(['billing']);
   });
 
@@ -252,6 +303,7 @@ describe('overview', () => {
   it('a component with PRs only outside the window shows no PRs in the last 30 days', async () => {
     mount(new FakeData([project('old', [makePr('1', { hours: 24 * 60 })])]));
     await flush();
+    showAll();
     expect(cell('old', 'scan')).toContain('no PRs in the last 30 days');
   });
 

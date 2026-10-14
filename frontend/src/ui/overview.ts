@@ -1,4 +1,4 @@
-import { fmtDate, fmtDuration, fmtPct, projectPageUrl } from '../format';
+import { fmtDate, fmtDuration, fmtPct, projectPageUrl, sonarBase } from '../format';
 import {
   distribution, gateOf, hasBefore, inWindow, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
   type ProjectSummary, type SortDir, type SortKey,
@@ -13,6 +13,31 @@ import {
 const TITLE = 'Mutation overview';
 /** The portfolio filter value for components without a portfolio. */
 const NO_PORTFOLIO = '\u0000none';
+/** Longest wait between repaints while projects stream in. */
+const PAINT_MS = 250;
+const ADOPTERS_KEY = 'mutation-dashboard-adopters:';
+
+/** Keys of the projects that had mutation data on an earlier visit (this browser, this server). Never throws. */
+function knownAdopters(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(ADOPTERS_KEY + sonarBase());
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberAdopter(key: string): void {
+  try {
+    const known = knownAdopters();
+    if (known.has(key)) return;
+    known.add(key);
+    globalThis.localStorage?.setItem(ADOPTERS_KEY + sonarBase(), JSON.stringify([...known]));
+  } catch {
+    // storage full or disabled: the order of loading is only an optimization
+  }
+}
 
 /** `num` columns are right-aligned. Gate and Status have no sort key: they are derived from the scores. */
 const COLUMNS: Array<{ key: SortKey | null; label: string; num?: boolean }> = [
@@ -35,10 +60,12 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   /** Weakest components first: that is where a manager looks. */
   let sortKey: SortKey = 'after';
   let sortDir: SortDir = 'asc';
-  let onlyWithData = false;
+  /** On by default: a server can hold thousands of projects and almost all of them have no mutation data. */
+  let onlyWithData = true;
   let portfolio = '';
   /** Bumped by every load and by dispose: results of an older load are dropped. */
   let loadId = 0;
+  let paintTimer: ReturnType<typeof setTimeout> | null = null;
 
   const body = h('div', { class: 'md' });
   root.replaceChildren(body);
@@ -85,7 +112,14 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       h('td', { class: 'num' }, times.length ? fmtDuration(times.reduce((a, v) => a + v, 0)) : '-'));
   }
 
+  /** While projects stream in, repaint at most every PAINT_MS: one repaint per project is quadratic on a big server. */
+  function schedulePaint(): void {
+    if (paintTimer !== null) return;
+    paintTimer = setTimeout(() => { paintTimer = null; paint(); }, PAINT_MS);
+  }
+
   function paint(): void {
+    if (paintTimer !== null) { clearTimeout(paintTimer); paintTimer = null; }
     const list = [...results.values()];
     if (!loading && list.length > 0 && list.every((r) => isNoPrAnalysis(r.error))) {
       clear(body);
@@ -98,6 +132,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const all = list.map((r) => summarizeProject(r, now()));
     const portfolios = [...new Set(all.map((s) => s.portfolio).filter((p): p is string => p !== null))].sort((a, b) => a.localeCompare(b));
     let summaries = all;
+    const hiddenCount = all.filter((s) => s.withData === 0 && s.error === null).length;
     if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
     if (portfolio) summaries = summaries.filter((s) => (portfolio === NO_PORTFOLIO ? s.portfolio === null : s.portfolio === portfolio));
     summaries = sortProjects(summaries, sortKey, sortDir);
@@ -131,7 +166,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
           h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
             onlyWithData = (e.target as HTMLInputElement).checked;
             paint();
-          } }), ' Only components with mutation data'),
+          } }), ` Only components with mutation data${onlyWithData && hiddenCount > 0 ? ` (${hiddenCount} without data hidden)` : ''}`),
           portfolios.length === 0 ? null : h('label', {}, 'Portfolio ',
             h('select', { 'data-filter': 'portfolio', onchange: (e: Event) => { portfolio = (e.target as HTMLSelectElement).value; paint(); } },
               h('option', { value: '', ...(portfolio === '' ? { selected: 'selected' } : {}) }, 'All'),
@@ -169,7 +204,9 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     try {
       const list = await data.listProjects();
       if (id !== loadId) return;
-      projects = list;
+      // Projects that had mutation data last time load first, so the page fills in at once on a big server.
+      const known = knownAdopters();
+      projects = [...list].sort((a, b) => Number(known.has(b.key)) - Number(known.has(a.key)));
     } catch (e) {
       if (id !== loadId) return;
       loading = false;
@@ -182,7 +219,8 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       const res = await data.loadProject(p);
       if (id !== loadId) return;
       results.set(p.key, res);
-      paint();
+      if (res.prs.some((r) => r.hasData)) rememberAdopter(p.key);
+      schedulePaint();
     }));
     if (id !== loadId) return;
     loading = false;
@@ -191,5 +229,5 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   const reload = () => load(true);
   void load(false);
 
-  return { reload, dispose: () => { loadId++; } };
+  return { reload, dispose: () => { loadId++; if (paintTimer !== null) { clearTimeout(paintTimer); paintTimer = null; } } };
 }

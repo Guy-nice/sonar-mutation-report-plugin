@@ -42,9 +42,18 @@ export function hasBefore(r: PrResult): boolean {
   return r.hasData && r.score !== null && r.scoreBefore !== null;
 }
 
-/** New-code score after minus before, in points. Null when either is unknown. */
+/** One decimal, half up: the rounding Sonar applies to the score it shows (JS toFixed and Python round differ on ties). */
+export function round1(n: number): number {
+  return Math.round(n * 10 + 1e-9) / 10;
+}
+
+/**
+ * New-code score after minus before, in points, from the one-decimal values the page shows, so a PR the agent did
+ * not improve reads +0.0 and never +0.1 (a tie such as 56.25 is 56.3 in Sonar's score and was 56.2 in the report).
+ * Null when either is unknown.
+ */
 export function change(r: PrResult): number | null {
-  return hasBefore(r) ? (r.score as number) - (r.scoreBefore as number) : null;
+  return hasBefore(r) ? round1(round1(r.score as number) - round1(r.scoreBefore as number)) : null;
 }
 
 export function wasPassing(r: PrResult): boolean {
