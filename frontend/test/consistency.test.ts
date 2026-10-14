@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderOverview } from '../src/ui/overview';
 import { renderPrList } from '../src/ui/prList';
-import { FakeData, NOW, makePr, project } from './fixtures';
+import { FakeData, NOW, improved, project } from './fixtures';
 
 const data = () => new FakeData([project('p', [
-  makePr('1', { score: 70, hours: 3 }), makePr('2', { score: 90, hours: 30 }), makePr('3', { score: 80, hours: 24 * 20 }),
+  improved('1', 50, 70, 900, { hours: 3 }), improved('2', 60, 90, 300, { hours: 30 }), improved('3', 70, 80, 600, { hours: 24 * 20 }),
 ])]);
 
 const shape = (root: HTMLElement) => ({
@@ -31,7 +31,7 @@ describe('overview and project page share one design', () => {
 
   it('same header, tiles, cards, distribution title, legend and status bands', () => {
     expect(shape(a)).toEqual(shape(b));
-    expect(shape(a).tiles).toEqual(['median', 'failingOpen', 'passRate', 'trend']);
+    expect(shape(a).tiles).toEqual(['improvement', 'failingOpen', 'passRate', 'duration']);
     expect(shape(a).cards).toEqual(['scores', 'distribution', 'details']);
   });
 

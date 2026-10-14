@@ -33,11 +33,22 @@ export function isNoPrAnalysis(error: string | null): boolean {
   return error !== null && /HTTP 404 \/api\/project_pull_requests\/list/.test(error);
 }
 
-export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+export function mean(values: number[]): number | null {
+  return values.length === 0 ? null : values.reduce((a, v) => a + v, 0) / values.length;
+}
+
+/** A scored PR that also carries the score of its first run, so the effect of the agent can be shown. */
+export function hasBefore(r: PrResult): boolean {
+  return r.hasData && r.score !== null && r.scoreBefore !== null;
+}
+
+/** New-code score after minus before, in points. Null when either is unknown. */
+export function change(r: PrResult): number | null {
+  return hasBefore(r) ? (r.score as number) - (r.scoreBefore as number) : null;
+}
+
+export function wasPassing(r: PrResult): boolean {
+  return hasBefore(r) && (r.scoreBefore as number) >= r.threshold;
 }
 
 export interface ProjectSummary {
@@ -48,65 +59,70 @@ export interface ProjectSummary {
   total: number;
   /** PRs in the window with mutation data. */
   withData: number;
-  failingOpen: number;
-  passRate: number | null;
-  medianScore: number | null;
-  latest: PrResult | null;
+  /** The most recent PR with mutation data: the component row shows its numbers. */
+  scanned: PrResult | null;
+  /** Group of the component (sonar.mutation.portfolio) as seen on that PR. */
+  portfolio: string | null;
+  before: number | null;
+  after: number | null;
+  change: number | null;
+  /** ISO date of the last scan. */
+  scanDate: string | null;
+  durationSec: number | null;
 }
 
 export function summarizeProject(res: ProjectResult, now: Date): ProjectSummary {
   const prs = res.prs.filter((r) => inWindow(r, now));
   const withData = prs.filter((r) => r.hasData);
-  const scored = withData.filter((r) => r.score !== null);
-  const passing = scored.filter(isPassing).length;
-  const latest = [...prs].sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate))[0] ?? null;
+  const scanned = [...withData].sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate))[0] ?? null;
   return {
     key: res.project.key,
     name: res.project.name,
     error: res.error,
     total: prs.length,
     withData: withData.length,
-    failingOpen: prs.filter((r) => isFailing(r) && isOpen(r, now)).length,
-    passRate: scored.length ? (passing / scored.length) * 100 : null,
-    medianScore: median(scored.map((r) => r.score as number)),
-    latest,
+    scanned,
+    portfolio: scanned?.portfolio ?? null,
+    before: scanned?.scoreBefore ?? null,
+    after: scanned?.score ?? null,
+    change: scanned ? change(scanned) : null,
+    scanDate: scanned?.pr.analysisDate ?? null,
+    durationSec: scanned?.durationSec ?? null,
   };
 }
 
+/** Quality gate of a component's last scan before and after the agent. Null = unknown. */
+export function gateOf(s: ProjectSummary): { before: boolean | null; after: boolean | null } {
+  const r = s.scanned;
+  if (!r || r.score === null) return { before: null, after: null };
+  return { before: hasBefore(r) ? wasPassing(r) : null, after: isPassing(r) };
+}
+
 export interface OverviewSummary {
-  failingOpen: number;
-  passRate: number | null;
   projectsWithData: number;
   projectsTotal: number;
-  medianScore: number | null;
 }
 
 export function summarizeOverview(results: ProjectResult[], now: Date): OverviewSummary {
   const ok = results.filter((r) => !r.error);
-  const prs = ok.flatMap((r) => r.prs.filter((p) => inWindow(p, now)));
-  const withData = prs.filter((p) => p.hasData);
-  const scored = withData.filter((p) => p.score !== null);
-  const passing = scored.filter(isPassing).length;
   return {
-    failingOpen: prs.filter((p) => isFailing(p) && isOpen(p, now)).length,
-    passRate: scored.length ? (passing / scored.length) * 100 : null,
     projectsWithData: ok.filter((r) => r.prs.some((p) => inWindow(p, now) && p.hasData)).length,
     projectsTotal: results.length,
-    medianScore: median(scored.map((p) => p.score as number)),
   };
 }
 
-export type SortKey = 'name' | 'failingOpen' | 'passRate' | 'medianScore' | 'adoption' | 'latest';
+export type SortKey = 'name' | 'portfolio' | 'before' | 'after' | 'change' | 'scan' | 'time';
 export type SortDir = 'asc' | 'desc';
 
 function sortValue(s: ProjectSummary, key: SortKey): number | string | null {
   switch (key) {
     case 'name': return s.name.toLowerCase();
-    case 'failingOpen': return s.failingOpen;
-    case 'passRate': return s.passRate;
-    case 'medianScore': return s.medianScore;
-    case 'adoption': return s.total ? s.withData / s.total : 0;
-    case 'latest': return s.latest ? s.latest.pr.analysisDate : null;
+    case 'portfolio': return s.portfolio === null ? null : s.portfolio.toLowerCase();
+    case 'before': return s.before;
+    case 'after': return s.after;
+    case 'change': return s.change;
+    case 'scan': return s.scanDate;
+    case 'time': return s.durationSec;
   }
 }
 
@@ -151,34 +167,6 @@ export function bandOf(score: number | null | undefined): Band | null {
 
 export function bandLabel(band: Band): string {
   return (BANDS.find((b) => b.band === band) as (typeof BANDS)[number]).label;
-}
-
-export const TREND_HALF_DAYS = WINDOW_DAYS / 2;
-/** Median moves smaller than this many points count as stable. */
-export const TREND_EPSILON = 1;
-
-export interface Trend {
-  direction: 'improving' | 'declining' | 'stable' | 'unknown';
-  /** Median score of the recent half minus the older half, in points. Null when direction is unknown. */
-  delta: number | null;
-}
-
-/** Median new-code score of the last 15 days against the 15 days before. Unknown when either half has no scored PR. */
-export function computeTrend(prs: PrResult[], now: Date): Trend {
-  const scored = prs.filter((r) => r.hasData && r.score !== null);
-  const recent: number[] = [];
-  const older: number[] = [];
-  for (const r of scored) {
-    const age = ageDays(r.pr.analysisDate, now);
-    if (Number.isNaN(age) || age > WINDOW_DAYS) continue;
-    (age <= TREND_HALF_DAYS ? recent : older).push(r.score as number);
-  }
-  const a = median(recent);
-  const b = median(older);
-  if (a === null || b === null) return { direction: 'unknown', delta: null };
-  const delta = a - b;
-  const direction = delta >= TREND_EPSILON ? 'improving' : delta <= -TREND_EPSILON ? 'declining' : 'stable';
-  return { direction, delta };
 }
 
 export interface Distribution {

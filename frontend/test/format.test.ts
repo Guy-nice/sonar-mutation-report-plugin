@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { codeUrl, fmtAge, fmtInt, fmtPct, projectPageUrl, sonarBase } from '../src/format';
+import { codeUrl, fmtAge, fmtDate, fmtDuration, fmtInt, fmtPct, fmtPts, projectPageUrl, sonarBase } from '../src/format';
 import { NOW, hoursAgo } from './fixtures';
 
 afterEach(() => {
@@ -18,6 +18,37 @@ describe('fmtPct / fmtInt', () => {
     expect(fmtPct(Number.NaN)).toBe('-');
     expect(fmtInt(null)).toBe('-');
     expect(fmtInt(Number.NaN)).toBe('-');
+  });
+});
+
+describe('fmtDate / fmtDuration / fmtPts', () => {
+  it('date is the UTC day; unparseable is a dash', () => {
+    expect(fmtDate('2026-10-13T23:59:59Z')).toBe('2026-10-13');
+    expect(fmtDate('2026-10-13T09:00:00+00:00')).toBe('2026-10-13');
+    expect(fmtDate('garbage')).toBe('-');
+    expect(fmtDate(null)).toBe('-');
+    expect(fmtDate(undefined)).toBe('-');
+  });
+  it('duration: seconds, minutes, hours with two digit minutes', () => {
+    expect(fmtDuration(0)).toBe('0s');
+    expect(fmtDuration(45)).toBe('45s');
+    expect(fmtDuration(59.6)).toBe('1m');
+    expect(fmtDuration(14 * 60)).toBe('14m');
+    expect(fmtDuration(3599)).toBe('59m');
+    expect(fmtDuration(3600)).toBe('1h 00m');
+    expect(fmtDuration(2 * 3600 + 4 * 60)).toBe('2h 04m');
+  });
+  it('duration: unknown or negative is a dash, never 0', () => {
+    expect(fmtDuration(null)).toBe('-');
+    expect(fmtDuration(undefined)).toBe('-');
+    expect(fmtDuration(Number.NaN)).toBe('-');
+    expect(fmtDuration(-1)).toBe('-');
+  });
+  it('points are signed with one decimal', () => {
+    expect(fmtPts(9)).toBe('+9.0');
+    expect(fmtPts(-2.5)).toBe('-2.5');
+    expect(fmtPts(0)).toBe('+0.0');
+    expect(fmtPts(null)).toBe('-');
   });
 });
 

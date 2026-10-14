@@ -13,8 +13,8 @@ beforeEach(() => {
 });
 
 const data = () => new FakeData([project('p', [
-  makePr('14', { score: 70.9, hours: 3, measures: { new_mutation_survived: 19, new_mutation_no_coverage: 12 } }),
-  makePr('13', { score: 84, hours: 30, measures: { new_mutation_survived: 3, new_mutation_no_coverage: 1 } }),
+  makePr('14', { score: 70.9, scoreBefore: 55, durationSec: 1320, portfolio: 'Routing', hours: 3, measures: { new_mutation_survived: 19, new_mutation_no_coverage: 12 } }),
+  makePr('13', { score: 84, scoreBefore: 60, durationSec: 600, hours: 30, measures: { new_mutation_survived: 3, new_mutation_no_coverage: 1 } }),
   noData('12', 60),
   makePr('10', { score: 80, hours: 24 * 9 }),
   makePr('1', { score: 50, hours: 24 * 40 }),
@@ -29,9 +29,24 @@ describe('PR list', () => {
     expect(tile('passRate')).toBe('67%');
   });
 
-  it('cards: recent PR score bars and the mutant distribution', async () => {
+  it('the four tiles: before to after, failing now, pass rate, time; no median or trend', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect([...root.querySelectorAll('[data-tile]')].map((t) => t.getAttribute('data-tile'))).toEqual(['improvement', 'failingOpen', 'passRate', 'duration']);
+    expect(tile('improvement')).toMatch(/^\d+%→\d+%$/);
+    expect(tile('duration')).toBe('32m');
+    expect(root.textContent?.toLowerCase()).not.toContain('median');
+  });
+
+  it('the subtitle names the portfolio when the PRs carry one', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(root.querySelector('.md-sub')?.textContent).toContain('Portfolio: Routing');
+  });
+
+  it('cards: recent PR before/after bars and the mutant distribution', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
     expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['14', '13', '10']);
+    expect(root.querySelector('[data-card="scores"] [data-bar="14"] .p')?.textContent).toBe('55% → 71%');
+    expect(root.querySelector('[data-card="scores"] [data-bar="10"] .p')?.textContent).toBe('- → 80%');
     expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('41');
   });
 
@@ -45,20 +60,27 @@ describe('PR list', () => {
     expect(select.value).toBe('failing');
   });
 
-  it('shows status, score and counts; dashes for a PR without data', async () => {
+  it('shows scan date, before, after, change, gate, time and counts; dashes for a PR without data', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('14', 'gate')).toBe('FAIL');
+    expect(cell('14', 'scan')).toBe('2026-10-05');
+    expect(cell('14', 'before')).toBe('55.0%');
     expect(cell('14', 'score')).toContain('70.9%');
+    expect(cell('14', 'change')).toBe('▲ +15.9');
+    expect(cell('14', 'gate')).toBe('Fail→Fail');
+    expect(cell('14', 'time')).toBe('22m');
     expect(cell('14', 'survived')).toBe('19');
-    expect(cell('13', 'gate')).toBe('PASS');
-    expect(cell('12', 'gate')).toBe('NO DATA');
+    expect(cell('13', 'gate')).toBe('Fail→Pass');
+    expect(cell('12', 'gate')).toBe('-→-');
+    expect(cell('12', 'before')).toBe('-');
     expect(cell('12', 'score')).toBe('-');
+    expect(cell('12', 'time')).toBe('-');
     expect(cell('12', 'survived')).toBe('-');
   });
 
-  it('a score equal to the threshold shows PASS', async () => {
+  it('a score equal to the threshold passes; no first score leaves the before side of the gate empty', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('10', 'gate')).toBe('PASS');
+    expect(cell('10', 'gate')).toBe('-→Pass');
+    expect(cell('10', 'change')).toBe('-');
   });
 
   it('status filter', async () => {
@@ -97,16 +119,22 @@ describe('PR list', () => {
     expect(root.textContent).toContain('HTTP 403');
   });
 
-  it('a PR with data but no score shows NO SCORE and stays out of the pass rate', async () => {
+  it('a PR with data but no score has no gate result and stays out of the pass rate', async () => {
     const d = new FakeData([project('p', [makePr('1', { score: 90 }), makePr('2', { score: null })])]);
     await renderPrList(root, d, { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('2', 'gate')).toBe('NO SCORE');
+    expect(cell('2', 'gate')).toBe('-→-');
     expect(tile('passRate')).toBe('100%');
   });
 
   it('says what open means', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
     expect(root.textContent).toContain('analyzed in the last 7 days');
+  });
+
+  it('explains before, after and time taken', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(root.textContent).toContain('Before = new-code score of the first run');
+    expect(root.textContent).toContain('Time taken = the whole agent run');
   });
 
   it('a server without pull request analysis gets a clear message', async () => {
