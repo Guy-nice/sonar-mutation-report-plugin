@@ -27,6 +27,30 @@ class ReportParserTest {
   }
 
   @Test
+  void readsTheRunFactsTheDashboardShows() {
+    Report r = TestReports.valid();
+    assertThat(r.scoreBefore).isEqualTo(55.5);
+    assertThat(r.durationSec).isEqualTo(754L);
+  }
+
+  @Test
+  void runFactsAreOptionalAndBadValuesAreDroppedNotRejected() {
+    String tail = ",\"summary\":{\"overall\":{\"killed\":1}}}";
+    Report none = parse("{\"schemaVersion\":1" + tail);
+    assertThat(none.scoreBefore).isNull();
+    assertThat(none.durationSec).isNull();
+    Report bad = parse("{\"schemaVersion\":1,\"run\":{\"scoreBefore\":120,\"durationSec\":-5}" + tail);
+    assertThat(bad.scoreBefore).isNull();
+    assertThat(bad.durationSec).isNull();
+    Report text = parse("{\"schemaVersion\":1,\"run\":{\"scoreBefore\":\"high\",\"durationSec\":\"slow\"}" + tail);
+    assertThat(text.scoreBefore).isNull();
+    assertThat(text.durationSec).isNull();
+    Report edge = parse("{\"schemaVersion\":1,\"run\":{\"scoreBefore\":0,\"durationSec\":0.6}" + tail);
+    assertThat(edge.scoreBefore).isEqualTo(0.0);
+    assertThat(edge.durationSec).isEqualTo(1L);
+  }
+
+  @Test
   void totalIsDerivedWhenAbsent() {
     Report r = parse("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"killed\":3,\"survived\":1}}}");
     assertThat(r.summary.overall.total).isEqualTo(4);

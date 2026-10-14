@@ -50,15 +50,21 @@ public final class Report {
 
   public final int schemaVersion;
   public final Double threshold;
+  /** New-code score of the first mutation run, before the agent wrote any test. Null when the agent did not say. */
+  public final Double scoreBefore;
+  /** Wall time of the whole agent run in seconds. Null when the agent did not say. */
+  public final Long durationSec;
   public final Scoped summary;
   public final Map<String, Scoped> languages;
   public final Map<String, FileEntry> files;
   public final List<Mutant> mutants;
 
-  public Report(int schemaVersion, Double threshold, Scoped summary, Map<String, Scoped> languages,
-      Map<String, FileEntry> files, List<Mutant> mutants) {
+  public Report(int schemaVersion, Double threshold, Double scoreBefore, Long durationSec, Scoped summary,
+      Map<String, Scoped> languages, Map<String, FileEntry> files, List<Mutant> mutants) {
     this.schemaVersion = schemaVersion;
     this.threshold = threshold;
+    this.scoreBefore = scoreBefore;
+    this.durationSec = durationSec;
     this.summary = summary;
     this.languages = languages;
     this.files = files;

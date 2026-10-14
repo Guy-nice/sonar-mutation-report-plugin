@@ -1,19 +1,14 @@
-import { fmtAge, fmtInt, fmtPct } from '../format';
-import { bandOf, distribution, inWindow, isFailing, isNoPrAnalysis, isPassing } from '../model';
+import { fmtDate, fmtDuration, fmtInt, fmtPct } from '../format';
+import { distribution, inWindow, isFailing, isNoPrAnalysis, isPassing, hasBefore, change, wasPassing } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef } from '../types';
 import { clear, h } from './dom';
-import { DISTRIBUTION_TITLE, bandPill, barChart, card, distributionCard, legend, pageHeader, summaryTiles } from './widgets';
+import {
+  DISTRIBUTION_TITLE, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
+} from './widgets';
 
 /** Bars in the "score by PR" card: the most recent PRs only. */
 const CHART_PRS = 6;
-
-export function scoreBar(r: PrResult): HTMLElement {
-  const pct = Math.max(0, Math.min(100, r.score ?? 0));
-  return h('span', { class: 'md-bar' },
-    h('i', { class: bandOf(r.score) ?? '', style: `width:${pct}%` }),
-    h('b', { style: `left:${Math.max(0, Math.min(100, r.threshold))}%` }));
-}
 
 export function statusPill(r: PrResult): HTMLElement {
   if (!r.hasData) return h('span', { class: 'md-pill none' }, 'NO DATA');
@@ -48,7 +43,8 @@ export async function renderPrList(
     return;
   }
 
-  box.append(...pageHeader(title, inWin, `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
+  const portfolio = [...inWin].filter((r) => r.hasData).sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate)).find((r) => r.portfolio !== null)?.portfolio;
+  box.append(...pageHeader(title, inWin, ...(portfolio ? [`Portfolio: ${portfolio}`] : []), `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
 
   let status: StatusFilter = 'all';
   let days = 30;
@@ -69,16 +65,19 @@ export async function renderPrList(
 
     clear(tableHolder);
     tableHolder.append(h('table', { class: 'md-table' },
-      h('thead', {}, h('tr', {}, ...(['PR', 'Title', 'Gate', 'Analyzed', 'New-code score', 'Status', 'Survived', 'No coverage'] as const).map((t) =>
-        h('th', { class: t === 'Survived' || t === 'No coverage' ? 'num' : '' }, t)))),
+      h('thead', {}, h('tr', {}, ...(['PR', 'Title', 'Last scan', 'Before', 'After', 'Change (pts)', 'Mutation gate', 'Status', 'Time taken', 'Survived', 'No coverage'] as const).map((t) =>
+        h('th', { class: ['Before', 'After', 'Change (pts)', 'Time taken', 'Survived', 'No coverage'].includes(t) ? 'num' : '' }, t)))),
       h('tbody', {}, ...visible.map((r) => h('tr', { 'data-pr': r.pr.key },
         h('td', {}, h('button', { class: 'md-link', 'data-action': 'open', onclick: () => onOpen(r) }, `#${r.pr.key}`)),
         h('td', {}, r.pr.title),
-        h('td', { 'data-col': 'gate' }, statusPill(r)),
-        h('td', { 'data-col': 'analyzed' }, fmtAge(r.pr.analysisDate, now())),
-        h('td', { 'data-col': 'score' }, h('span', { class: 'md-sc' }, fmtPct(r.score)), r.score !== null ? scoreBar(r) : null,
+        h('td', { 'data-col': 'scan' }, fmtDate(r.pr.analysisDate)),
+        h('td', { 'data-col': 'before', class: 'num' }, fmtPct(r.scoreBefore)),
+        h('td', { 'data-col': 'score', class: 'num' }, fmtPct(r.score),
           r.thresholdAssumed && r.hasData ? h('span', { class: 'md-muted' }, ' (threshold assumed)') : null),
+        h('td', { 'data-col': 'change', class: 'num' }, changeCell(change(r))),
+        h('td', { 'data-col': 'gate' }, r.score === null ? gateChange(null, null) : gateChange(hasBefore(r) ? wasPassing(r) : null, isPassing(r))),
         h('td', { 'data-col': 'status' }, bandPill(r.score)),
+        h('td', { 'data-col': 'time', class: 'num' }, fmtDuration(r.durationSec)),
         h('td', { 'data-col': 'survived', class: 'num' }, r.hasData ? fmtInt(r.measures.new_mutation_survived) : '-'),
         h('td', { 'data-col': 'noCoverage', class: 'num' }, r.hasData ? fmtInt(r.measures.new_mutation_no_coverage) : '-'))))));
   }
@@ -93,9 +92,8 @@ export async function renderPrList(
   box.append(
     summaryTiles(inWin, now()),
     h('div', { class: 'md-cards' },
-      card('New-code Score by Pull Request', 'scores',
-        barChart(recent.map((r) => ({ key: r.pr.key, label: `#${r.pr.key} ${r.pr.title}`, pct: r.score as number, tick: r.threshold })), 'No scored pull requests.'),
-        h('p', { class: 'md-note2' }, 'Black tick on each bar = threshold.')),
+      card('Before → After Agent, by Pull Request', 'scores',
+        pairedBarChart(recent.map((r) => ({ key: r.pr.key, label: `#${r.pr.key} ${r.pr.title}`, before: r.scoreBefore, after: r.score as number, tick: r.threshold })), 'No scored pull requests.')),
       distributionCard(DISTRIBUTION_TITLE, distribution(inWin))),
     card('Pull Requests', 'details',
       h('div', { class: 'md-filters' }, 'Status ',
@@ -104,6 +102,6 @@ export async function renderPrList(
         select('days', [['7', 'Last 7 days'], ['14', 'Last 14 days'], ['30', 'Last 30 days']], (v) => { days = Number(v); })),
       tableHolder,
       legend(),
-      h('p', { class: 'md-note2' }, 'Gate is the quality gate (new-code score against the threshold, the black tick); Status and bar colors are score bands. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')));
+      h('p', { class: 'md-note2' }, 'Before = new-code score of the first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the threshold (the black tick); Status and bar colors are score bands. Time taken = the whole agent run. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')));
   paintTable();
 }

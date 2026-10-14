@@ -12,6 +12,9 @@ export function makePr(key: string, over: Partial<PrResult> & { hours?: number; 
     pr: { key, title, branch: `feature/${key}`, base: 'main', analysisDate: hoursAgo(hours) },
     hasData: true,
     score: 85,
+    scoreBefore: null,
+    durationSec: null,
+    portfolio: null,
     threshold: 80,
     thresholdAssumed: false,
     measures: { new_mutation_score: 85, new_mutation_total: 40, new_mutation_killed: 34, new_mutation_survived: 4, new_mutation_no_coverage: 2 },
@@ -21,6 +24,11 @@ export function makePr(key: string, over: Partial<PrResult> & { hours?: number; 
 
 export function noData(key: string, hours = 3): PrResult {
   return makePr(key, { hours, hasData: false, score: null, measures: {} });
+}
+
+/** A PR the agent improved: `before` -> `after`, taking `sec` seconds. */
+export function improved(key: string, before: number, after: number, sec: number, over: Partial<PrResult> & { hours?: number; title?: string } = {}): PrResult {
+  return makePr(key, { score: after, scoreBefore: before, durationSec: sec, measures: { new_mutation_score: after, new_mutation_total: 40, new_mutation_killed: 34, new_mutation_survived: 4, new_mutation_no_coverage: 2 }, ...over });
 }
 
 export class FakeData implements DataSource {

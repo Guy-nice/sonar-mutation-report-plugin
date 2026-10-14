@@ -1,9 +1,9 @@
-import { codeUrl, fmtAge, fmtInt, fmtPct } from '../format';
-import { distribution, sortFilesWeakestFirst } from '../model';
+import { codeUrl, fmtAge, fmtDuration, fmtInt, fmtPct, fmtPts } from '../format';
+import { change, distribution, sortFilesWeakestFirst } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, FileRow, PrResult, SurvivorRow } from '../types';
 import { h } from './dom';
-import { scoreBar, statusPill } from './prList';
+import { statusPill } from './prList';
 import type { DetailRenderer } from './projectPage';
 import { barChart, card, distributionCard, legend, tile } from './widgets';
 
@@ -57,9 +57,10 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
     h('button', { class: 'md-link', 'data-action': 'back', onclick: onBack }, 'All pull requests'),
     h('div', { class: 'md-head' },
       h('div', {}, h('div', { class: 't' }, `PR #${r.pr.key} - ${r.pr.title} `, statusPill(r)),
-        h('div', { class: 'm' }, `${r.pr.branch} → ${r.pr.base} · analyzed ${fmtAge(r.pr.analysisDate, now())}`)),
+        h('div', { class: 'm' }, `${r.pr.branch} → ${r.pr.base} · analyzed ${fmtAge(r.pr.analysisDate, now())}${r.durationSec === null ? '' : ` · agent run ${fmtDuration(r.durationSec)}`}`)),
       h('div', {}, h('div', { class: `md-big ${r.score !== null && r.score < r.threshold ? 'md-fail' : ''}`, 'data-part': 'score' }, fmtPct(r.score)),
-        h('div', { class: 'm' }, `new-code score · threshold ${r.threshold}%${r.thresholdAssumed ? ' (assumed)' : ''}`)),
+        h('div', { class: 'm' }, `new-code score · threshold ${r.threshold}%${r.thresholdAssumed ? ' (assumed)' : ''}`),
+        change(r) === null ? null : h('div', { class: 'm', 'data-part': 'before' }, `before the agent ${fmtPct(r.scoreBefore)} (${fmtPts(change(r))} pts)`)),
     ),
     h('div', { class: 'md-kpis' },
       tile('total', 'Mutants in changed lines', fmtInt(m.new_mutation_total), `${fmtInt(m.new_mutation_killed)} killed by tests`),
@@ -156,5 +157,3 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
 
   void loadFilesAndSurvivors();
 };
-
-export { scoreBar };

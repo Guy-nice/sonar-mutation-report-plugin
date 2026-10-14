@@ -13,8 +13,9 @@ export const SURVIVOR_RULES = 'external_mutation-report:survived,external_mutati
 export const PR_METRICS = [
   'new_mutation_score', 'mutation_threshold', 'new_mutation_total', 'new_mutation_killed', 'new_mutation_survived',
   'new_mutation_no_coverage', 'new_mutation_timed_out', 'new_mutation_memory_error', 'new_mutation_unknown',
-  'new_mutation_test_strength',
+  'new_mutation_test_strength', 'new_mutation_score_before', 'mutation_run_duration', 'mutation_portfolio',
 ];
+export const PORTFOLIO_METRIC = 'mutation_portfolio';
 const FILE_METRICS = ['new_mutation_score', 'new_mutation_alive', 'new_mutation_lines', 'mutation_score', 'new_mutation_total'];
 const MUTATION_DOMAIN = 'Mutation Analysis';
 
@@ -119,25 +120,33 @@ export class SonarApi implements DataSource {
     }));
   }
 
-  private async measures(component: string, prKey: string, keys: string[]): Promise<Record<string, number>> {
+  private async rawMeasures(component: string, prKey: string, keys: string[]): Promise<RawMeasure[]> {
     const r = await this.get<{ component?: { measures?: RawMeasure[] } }>('/api/measures/component', {
       component, pullRequest: prKey, metricKeys: keys.join(','),
     });
-    return toMeasureMap(r.component?.measures ?? []);
+    return r.component?.measures ?? [];
+  }
+
+  private async measures(component: string, prKey: string, keys: string[]): Promise<Record<string, number>> {
+    return toMeasureMap(await this.rawMeasures(component, prKey, keys));
   }
 
   private async prResult(projectKey: string, pr: PullRequestRef): Promise<PrResult> {
-    let measures: Record<string, number> = {};
+    let raw: RawMeasure[] = [];
     try {
-      measures = await this.measures(projectKey, pr.key, PR_METRICS);
+      raw = await this.rawMeasures(projectKey, pr.key, PR_METRICS);
     } catch (e) {
       if (!(e instanceof HttpError && e.status === 404)) throw e; // no analysis data for this PR: treat as no data
     }
+    const measures = toMeasureMap(raw);
+    const portfolio = raw.find((m) => m.metric === PORTFOLIO_METRIC)?.value?.trim() || null;
     const score = measures.new_mutation_score ?? null;
     const hasData = Object.keys(measures).some((k) => k.includes('mutation'));
     const hasThreshold = measures.mutation_threshold !== undefined;
     return {
-      pr, hasData, score, measures,
+      pr, hasData, score, measures, portfolio,
+      scoreBefore: measures.new_mutation_score_before ?? null,
+      durationSec: measures.mutation_run_duration ?? null,
       threshold: hasThreshold ? measures.mutation_threshold : DEFAULT_THRESHOLD,
       thresholdAssumed: !hasThreshold,
     };

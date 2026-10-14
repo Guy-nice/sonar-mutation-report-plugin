@@ -88,6 +88,21 @@ describe('loadProject', () => {
     expect(res.prs[0]).toMatchObject({ hasData: true, score: 70.9, threshold: 85, thresholdAssumed: false });
     expect(res.prs[1]).toMatchObject({ hasData: false, score: null });
   });
+  it('reads the first score, the agent run time and the portfolio', async () => {
+    const { fn, calls } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [
+      { metric: 'new_mutation_score', value: '84' }, { metric: 'new_mutation_score_before', value: '78' },
+      { metric: 'mutation_run_duration', value: '754' }, { metric: 'mutation_portfolio', value: ' Platform Services ' },
+    ] } }));
+    const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
+    expect(res.prs[0]).toMatchObject({ score: 84, scoreBefore: 78, durationSec: 754, portfolio: 'Platform Services' });
+    const asked = decodeURIComponent(calls.find((c) => c.includes('measures/component')) ?? '');
+    for (const k of ['new_mutation_score_before', 'mutation_run_duration', 'mutation_portfolio']) expect(asked).toContain(k);
+  });
+  it('a PR from an agent that does not report them has nulls, not zeros', async () => {
+    const { fn } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [{ metric: 'new_mutation_score', value: '50' }, { metric: 'mutation_portfolio', value: '  ' }] } }));
+    const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
+    expect(res.prs[0]).toMatchObject({ scoreBefore: null, durationSec: null, portfolio: null });
+  });
   it('missing threshold falls back to 80 and is flagged', async () => {
     const { fn } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [{ metric: 'new_mutation_score', value: '50' }] } }));
     const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });

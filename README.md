@@ -7,10 +7,11 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v0.3.0 (dashboard).** v0.2.0's full metric set (per-file measures with folder/project aggregation,
-> new-code variants, per-language measures, survivor issues) plus two read-only dashboard pages for pull
-> requests (see "Dashboard"). Verified on a local SonarQube 26.1 (see "Verification"). The dashboard's
-> pull request views are not yet verified on a server with pull request analysis (sonartest).
+> **Status: v0.4.1 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
+> folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
+> dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
+> after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 and, with
+> mock pull request analyses, on sonartest (see "Verification"). Not yet verified with real agent runs on sonartest.
 
 ## Why a plugin
 
@@ -45,6 +46,14 @@ project, so the Measures page has a file tree, drill-down and treemap.
 Also published: `mutation_threshold` (project), and per language `mutation_<lang>_{total,killed,survived,score}`
 and the `new_` variants, for `typescript`, `javascript`, `csharp`, `java`, `python`, `go` and `other`.
 
+Run facts (project level, informational, only when the agent or the scan supplies them):
+
+| Metric key | Type | Meaning |
+|---|---|---|
+| `new_mutation_score_before` | percent | new-code score of the agent's first run, before it wrote tests |
+| `mutation_run_duration` | integer | seconds the agent took in total (scan, test writing, verify run) |
+| `mutation_portfolio` | string | group of the component, from the property `sonar.mutation.portfolio` |
+
 Survivors and no-coverage mutants become **external issues** (rules `external_mutation-report:survived`
 and `external_mutation-report:no-coverage`) on the file and line. No language or quality profile is
 needed. Mutants in files Sonar did not analyze are skipped.
@@ -63,35 +72,49 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 | Alive Total % / Total % | `alive_percent` / `total_percent` |
 | Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
 
-## Dashboard (v0.3.0)
+## Dashboard (v0.4.1)
 
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
 
 - **Mutation overview** (top menu **More > Mutation overview**): for managers. Same four tiles as every project page
-  (median new-code score, open PRs failing now, PR pass rate, score trend; the subtitle says how many projects use
-  mutation), a "Median Score by Project" bar chart,
-  a killed / alive "Mutant Distribution" card and a sortable table per project: failing open PRs (default sort),
-  pass rate, median score, status band, adoption, latest PR. Projects without mutation data sort last and
-  stay visible (the adoption gap); a checkbox hides them.
-- **Mutation** (project menu **More > Mutation**): same layout as the overview: tiles, a score-by-PR bar chart with threshold marks, a
-  killed / alive distribution card and the PR list for the last 30 days (gate PASS/FAIL, new-code score with
-  a threshold mark, status band, survived, no coverage; filters by status and date). Click a PR, or open the page on a PR,
-  for the detail: verdict and score against the threshold, counts, a weakest-files chart, a distribution card, and tabs Files (weakest first, with the
-  survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
+  (score before -> after the agent, open PRs failing now, PR pass rate, time to test and fix; the subtitle says how
+  many components use mutation), a "Before -> After Agent, by Component" bar chart (grey = first run, colored =
+  final, black tick = threshold), a killed / alive "Mutant Distribution" card and a "Component changes" table:
+  component, portfolio, before, after, change (pts), mutation gate (Fail -> Pass), status band, last scan date,
+  time taken, plus a last row with the average. Every data column sorts (default: weakest After first).
+  Components without mutation data are hidden by default (a server can hold thousands of projects; the checkbox
+  label says how many are hidden) and sort last when shown (the adoption gap). A Portfolio filter appears when any
+  component has a portfolio. Projects that had mutation data on an earlier visit load first (kept in the browser's
+  local storage), so a big server fills in quickly; the table repaints in batches while projects stream in.
+  Measured on sonartest (2,084 projects): about 60 s until every project is loaded.
+- **Mutation** (project menu **More > Mutation**): same layout as the overview: tiles, a before -> after bar chart
+  per pull request, a killed / alive distribution card and the PR list for the last 30 days (last scan, before,
+  after, change, mutation gate, status band, time taken, survived, no coverage; filters by status and date). Click
+  a PR, or open the page on a PR, for the detail: verdict and score against the threshold (with the score before
+  the agent and the run time), counts, a weakest-files chart, a distribution card, and tabs Files (weakest first,
+  with the survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
   The `main` branch is not summarized; opened on another branch the page shows a note and the PR list.
 
 ![Dashboard mock](docs/screenshots/dashboard-dev-harness.png)
 
-Definitions (the same on every page): **status band** = Excellent (90%+), Good (85-89%), Fair (75-84%), Needs Work
-(<75%) of a score (a presentation aid; the quality gate is still the threshold); **trend** = median new-code score
-of the last 15 days minus the median of the 15 days before (Improving or Declining at 1 point or more, else Stable);
-**mutant distribution** = killed vs alive (survived + no coverage) mutants summed over the PRs in the window; **failing** = an open PR whose latest `new_mutation_score` is below
-`mutation_threshold`; **pass rate** = passing PRs / PRs with mutation data; **adoption** = PRs with mutation
-data / all analyzed PRs; **median score** = median of the latest `new_mutation_score` per PR with data. Window:
-30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no data", never as 0. A PR with data but no score shows "NO SCORE" and
-is left out of the pass rate and the median.
+Definitions (the same on every page): **before** = `new_mutation_score_before`, the new-code score of the agent's
+first run; **after** = `new_mutation_score`, the final score; **change** = after minus before, in points, from the one-decimal values shown (ties round up, like Sonar);
+**mutation gate** = the new-code score against `mutation_threshold`, before and after the agent; **status band** =
+Excellent (90%+), Good (85-89%), Fair (75-84%), Needs Work (<75%) of the after score (a presentation aid; the quality
+gate is still the threshold); **component row** = the component's most recent PR with mutation data (its scan date,
+scores and time); **time taken** = `mutation_run_duration`, the whole agent run; **averages** are means over the
+PRs (or components) that report both scores; **mutant distribution** = killed vs alive (survived + no coverage)
+mutants summed over the PRs in the window; **failing** = an open PR whose latest `new_mutation_score` is below
+`mutation_threshold`; **pass rate** = passing PRs / PRs with mutation data, with "(was x / y)" when every scored PR
+has a first score. Window: 30 days. A score equal to the threshold passes. A missing value is shown as `-` or "no
+data", never as 0; a PR from an agent that does not report the first score or the time shows `-` there. A PR with
+data but no score has no gate result and is left out of the pass rate.
 Sonar does not reliably say whether a PR is still open, so "open" means "analyzed in the last 7 days".
+
+Portfolio: set `sonar.mutation.portfolio=Routing` in `sonar-project.properties` (or `-D`). The scan publishes it as
+`mutation_portfolio` on every analysis; the overview shows and filters by it. It is free text (Sonar's own
+portfolios need Enterprise Edition and have no read API here).
 
 How it works: the pages call Sonar's web API from the browser with the viewer's own session, so Sonar's
 permissions decide which projects and PRs each person sees. At most 6 requests run at once and results are
@@ -160,7 +183,7 @@ Unknown fields are ignored. Unknown major versions are rejected with a clear err
 ```json
 {
   "schemaVersion": 1,
-  "run": { "runId": "r1", "threshold": 80 },
+  "run": { "runId": "r1", "threshold": 80, "scoreBefore": 55.5, "durationSec": 754 },
   "summary": {
     "overall": { "total": 30, "killed": 22, "timedOut": 1, "memoryError": 1, "survived": 5,
                  "noCoverage": 1, "suppressed": 2, "testsExecuted": 90, "testKills": 24 },
@@ -175,7 +198,9 @@ Unknown fields are ignored. Unknown major versions are rejected with a clear err
 }
 ```
 
-Only `schemaVersion` and `summary.overall` are required. A count group whose `total` is smaller than the
+Only `schemaVersion` and `summary.overall` are required. `run.scoreBefore` (0-100, the new-code score of the
+first run) and `run.durationSec` (seconds, whole run) are optional; a value that is missing, not a number or out
+of range is dropped, never an error, so an agent that does not send them still works. A count group whose `total` is smaller than the
 sum of its parts is rejected. `mutants[]` lists only SURVIVED and NO_COVERAGE mutants. Scores and
 percentages are computed by the plugin from the counts; they are not sent.
 
@@ -278,8 +303,16 @@ Dashboard (v0.3.0): both pages load and render in Sonar's UI and call the real w
 pull request analysis, so the PR endpoint answers 404 and the pages show "unavailable" with a retry); the full
 views are checked with the local harness and the frontend unit tests.
 
-Still open: the dashboard against real pull request analyses (sonartest), a second Sonar version, and a run on
-sonartest.
+sonartest (SonarQube Server 2026.1.2 Enterprise, plugin 0.4.0 installed), 2026-10-14: six mock pull request
+analyses were scanned into `qa-rm-testing-gates` (threshold 80) and read back through the web API. The gate
+followed the score: 87.5% and exactly 80.0% passed; 78.9%, 68.8% and 56.3% failed on `new_mutation_score`; a
+report without the run facts showed `-` for before and time. Both pages were opened in a browser against the live
+API: tiles, before/after bars, gate transitions, status bands, last scan and time taken all matched the uploaded
+numbers. It also showed what a server with 2,084 projects needs: no-data components hidden by default, batched
+repaints and adopters loading first (all in 0.4.1; the first load went from over 3 minutes to about 60 s). A
+tie such as 56.25 was +0.1 on a PR the agent had not improved; the agent now rounds ties up too.
+
+Still open: the dashboard with real agent runs on sonartest and a second Sonar version.
 
 To repeat on any server: scan a project that sets `sonar.mutation.reportPath`, then check
 `GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` and

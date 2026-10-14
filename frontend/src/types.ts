@@ -19,6 +19,12 @@ export interface PrResult {
   hasData: boolean;
   /** new_mutation_score, or null when absent. */
   score: number | null;
+  /** new_mutation_score_before: new-code score of the first run, before the agent wrote tests. Null when not reported. */
+  scoreBefore: number | null;
+  /** mutation_run_duration: seconds the agent took in total. Null when not reported. */
+  durationSec: number | null;
+  /** mutation_portfolio: group of the component (property sonar.mutation.portfolio). Null when not set. */
+  portfolio: string | null;
   threshold: number;
   /** True when mutation_threshold was missing and DEFAULT_THRESHOLD was used. */
   thresholdAssumed: boolean;

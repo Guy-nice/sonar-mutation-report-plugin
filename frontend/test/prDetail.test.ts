@@ -36,6 +36,16 @@ describe('PR detail', () => {
     expect(root.textContent).toContain('feature/14');
   });
 
+  it('header shows the score before the agent and the run time when reported', async () => {
+    const improvedPr = makePr('15', { score: 84, scoreBefore: 78, durationSec: 840, measures: { new_mutation_score: 84 } });
+    await renderPrDetail(root, data(), 'p', improvedPr, () => {}, () => NOW);
+    expect(text('[data-part="before"]')).toBe('before the agent 78.0% (+6.0 pts)');
+    expect(root.textContent).toContain('agent run 14m');
+    await open();
+    expect(root.querySelector('[data-part="before"]')).toBeNull();
+    expect(root.textContent).not.toContain('agent run');
+  });
+
   it('tiles show counts; timeout/memory/unknown are summed; absent values are dashes', async () => {
     await open();
     expect(text('[data-tile="total"] .v')).toBe('127');

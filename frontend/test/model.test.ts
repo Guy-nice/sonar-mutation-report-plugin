@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BANDS, bandLabel, bandOf, computeTrend, distribution, lastUpdated,
-  inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, median, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject,
+  BANDS, bandLabel, bandOf, change, distribution, gateOf, hasBefore, lastUpdated,
+  inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, mean, round1, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject, wasPassing,
 } from '../src/model';
 import type { FileRow } from '../src/types';
-import { NOW, makePr, noData, project } from './fixtures';
+import { NOW, improved, makePr, noData, project } from './fixtures';
 
 describe('isFailing / isPassing', () => {
   it('score below threshold fails', () => {
@@ -40,14 +40,13 @@ describe('windows', () => {
 });
 
 describe('PRs with data but no score', () => {
-  it('count as adopted but stay out of the pass rate and median', () => {
-    const scoreless = makePr('2', { score: null });
-    const s = summarizeProject(project('p', [makePr('1', { score: 90 }), scoreless]), NOW);
+  it('count as adopted; a scoreless newest PR is still the component row, with null scores', () => {
+    const scoreless = makePr('2', { score: null, hours: 1 });
+    const s = summarizeProject(project('p', [makePr('1', { score: 90, hours: 5 }), scoreless]), NOW);
     expect(s.withData).toBe(2);
-    expect(s.passRate).toBe(100);
-    expect(s.medianScore).toBe(90);
-    const o = summarizeOverview([project('p', [makePr('1', { score: 90 }), scoreless])], NOW);
-    expect(o.passRate).toBe(100);
+    expect(s.scanned?.pr.key).toBe('2');
+    expect(s.after).toBeNull();
+    expect(gateOf(s)).toEqual({ before: null, after: null });
   });
 });
 
@@ -60,46 +59,70 @@ describe('isNoPrAnalysis', () => {
   });
 });
 
-describe('median', () => {
-  it('odd, even, empty', () => {
-    expect(median([3, 1, 2])).toBe(2);
-    expect(median([4, 1, 3, 2])).toBe(2.5);
-    expect(median([])).toBeNull();
+describe('mean', () => {
+  it('averages, and is null for nothing', () => {
+    expect(mean([1, 2, 6])).toBe(3);
+    expect(mean([])).toBeNull();
+  });
+});
+
+describe('before and after the agent', () => {
+  it('change is after minus before; both must be known', () => {
+    expect(change(improved('1', 58, 67, 60))).toBe(9);
+    expect(change(improved('1', 70, 66, 60))).toBe(-4);
+    expect(change(makePr('1'))).toBeNull();
+    expect(change(improved('1', 50, 60, 60, { score: null }))).toBeNull();
+    expect(hasBefore(noData('1'))).toBe(false);
+  });
+  it('change uses the one-decimal values shown: no improvement is +0.0, a 56.25 tie rounds like Sonar', () => {
+    expect(change(improved('1', 56.25, 56.3, 1))).toBe(0);
+    expect(change(improved('1', 62.5, 87.5, 1))).toBe(25);
+    expect(change(improved('1', 43.75, 68.8, 1))).toBe(25);
+    expect(change(improved('1', 70.04, 69.96, 1))).toBe(0);
+    expect(round1(56.25)).toBe(56.3);
+    expect(round1(0.05)).toBe(0.1);
+  });
+  it('was passing compares the first score with the threshold, at the edge too', () => {
+    expect(wasPassing(improved('1', 80, 90, 1))).toBe(true);
+    expect(wasPassing(improved('1', 79.9, 90, 1))).toBe(false);
+    expect(wasPassing(makePr('1'))).toBe(false);
   });
 });
 
 describe('summarizeProject', () => {
-  it('counts failing open PRs, pass rate, median, adoption, latest', () => {
+  it('the component row is the most recent PR with data; older and no-data PRs do not count', () => {
     const res = project('p', [
-      makePr('1', { score: 70, hours: 2 }),
-      makePr('2', { score: 90, hours: 30 }),
-      makePr('3', { score: 80, hours: 50 }),
-      noData('4', 60),
+      improved('1', 50, 70, 600, { hours: 2, portfolio: 'Routing' }),
+      improved('2', 60, 90, 300, { hours: 30 }),
+      noData('4', 1), // newest, but no mutation data
       makePr('5', { score: 50, hours: 24 * 40 }), // outside the window: ignored
     ]);
     const s = summarizeProject(res, NOW);
-    expect(s.total).toBe(4);
-    expect(s.withData).toBe(3);
-    expect(s.failingOpen).toBe(1);
-    expect(s.passRate).toBeCloseTo((2 / 3) * 100);
-    expect(s.medianScore).toBe(80);
-    expect(s.latest?.pr.key).toBe('1');
+    expect(s.total).toBe(3);
+    expect(s.withData).toBe(2);
+    expect(s.scanned?.pr.key).toBe('1');
+    expect(s).toMatchObject({ portfolio: 'Routing', before: 50, after: 70, change: 20, durationSec: 600 });
+    expect(s.scanDate).toBe(res.prs[0].pr.analysisDate);
+    expect(gateOf(s)).toEqual({ before: false, after: false });
   });
-  it('a failing PR that is no longer open does not count as failing now', () => {
-    const s = summarizeProject(project('p', [makePr('1', { score: 10, hours: 24 * 10 })]), NOW);
-    expect(s.failingOpen).toBe(0);
-    expect(s.passRate).toBe(0);
+  it('gate before and after: Fail -> Pass', () => {
+    expect(gateOf(summarizeProject(project('p', [improved('1', 78, 84, 1)]), NOW))).toEqual({ before: false, after: true });
   });
-  it('zero PRs: no division by zero, nulls not zeros', () => {
+  it('a PR from an agent that does not report the first score: no before, no change, gate after only', () => {
+    const s = summarizeProject(project('p', [makePr('1', { score: 90 })]), NOW);
+    expect(s).toMatchObject({ before: null, after: 90, change: null, durationSec: null, portfolio: null });
+    expect(gateOf(s)).toEqual({ before: null, after: true });
+  });
+  it('zero PRs: nulls not zeros', () => {
     const s = summarizeProject(project('p', []), NOW);
-    expect(s).toMatchObject({ total: 0, withData: 0, failingOpen: 0, passRate: null, medianScore: null, latest: null });
+    expect(s).toMatchObject({ total: 0, withData: 0, scanned: null, portfolio: null, before: null, after: null, change: null, scanDate: null, durationSec: null });
   });
-  it('only PRs without data: passRate and median are null', () => {
+  it('only PRs without data: no scan', () => {
     const s = summarizeProject(project('p', [noData('1'), noData('2')]), NOW);
     expect(s.total).toBe(2);
     expect(s.withData).toBe(0);
-    expect(s.passRate).toBeNull();
-    expect(s.medianScore).toBeNull();
+    expect(s.scanned).toBeNull();
+    expect(gateOf(s)).toEqual({ before: null, after: null });
   });
   it('keeps the error', () => {
     expect(summarizeProject(project('p', [], 'boom'), NOW).error).toBe('boom');
@@ -107,7 +130,7 @@ describe('summarizeProject', () => {
 });
 
 describe('summarizeOverview', () => {
-  it('aggregates across projects and ignores errored projects in counts', () => {
+  it('counts components with data and ignores errored ones', () => {
     const o = summarizeOverview(
       [
         project('a', [makePr('1', { score: 70 }), makePr('2', { score: 90 })]),
@@ -117,30 +140,35 @@ describe('summarizeOverview', () => {
       ],
       NOW,
     );
-    expect(o.failingOpen).toBe(1);
-    expect(o.passRate).toBeCloseTo((2 / 3) * 100);
     expect(o.projectsWithData).toBe(2);
     expect(o.projectsTotal).toBe(4);
-    expect(o.medianScore).toBe(90);
   });
-  it('empty input gives nulls', () => {
-    const o = summarizeOverview([], NOW);
-    expect(o).toMatchObject({ failingOpen: 0, passRate: null, projectsWithData: 0, projectsTotal: 0, medianScore: null });
+  it('empty input gives zeros', () => {
+    expect(summarizeOverview([], NOW)).toEqual({ projectsWithData: 0, projectsTotal: 0 });
   });
 });
 
 describe('sortProjects', () => {
   const list = () => [
-    summarizeProject(project('beta', [makePr('1', { score: 90 })]), NOW),
-    summarizeProject(project('alpha', [makePr('2', { score: 60 }), makePr('3', { score: 50 })]), NOW),
+    summarizeProject(project('beta', [improved('1', 80, 90, 300, { portfolio: 'Routing', hours: 5 })]), NOW),
+    summarizeProject(project('alpha', [improved('2', 40, 60, 900, { portfolio: 'Platform', hours: 2 })]), NOW),
     summarizeProject(project('gamma', [noData('4')]), NOW),
-    summarizeProject(project('delta', [makePr('5', { score: 70 })]), NOW),
+    summarizeProject(project('delta', [improved('5', 30, 70, 60, { hours: 9 })]), NOW),
   ];
-  it('default: failing open desc, ties by name, no-data projects last', () => {
-    expect(sortProjects(list(), 'failingOpen', 'desc').map((s) => s.key)).toEqual(['alpha', 'delta', 'beta', 'gamma']);
+  it('by after, ascending: weakest first, ties by name, no-data components last', () => {
+    expect(sortProjects(list(), 'after', 'asc').map((s) => s.key)).toEqual(['alpha', 'delta', 'beta', 'gamma']);
   });
-  it('projects without data stay last even when ascending', () => {
-    expect(sortProjects(list(), 'medianScore', 'asc').map((s) => s.key)).toEqual(['alpha', 'delta', 'beta', 'gamma']);
+  it('components without data stay last even when descending', () => {
+    expect(sortProjects(list(), 'after', 'desc').map((s) => s.key)).toEqual(['beta', 'delta', 'alpha', 'gamma']);
+  });
+  it('by change, before, time and scan date', () => {
+    expect(sortProjects(list(), 'change', 'desc').map((s) => s.key)).toEqual(['delta', 'alpha', 'beta', 'gamma']);
+    expect(sortProjects(list(), 'before', 'asc').map((s) => s.key)).toEqual(['delta', 'alpha', 'beta', 'gamma']);
+    expect(sortProjects(list(), 'time', 'asc').map((s) => s.key)).toEqual(['delta', 'beta', 'alpha', 'gamma']);
+    expect(sortProjects(list(), 'scan', 'desc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
+  });
+  it('by portfolio: a component without one sorts after those with one', () => {
+    expect(sortProjects(list(), 'portfolio', 'asc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
   });
   it('sorts by name', () => {
     expect(sortProjects(list(), 'name', 'asc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
@@ -175,33 +203,6 @@ describe('bandOf', () => {
     expect(bandOf(null)).toBeNull();
     expect(bandOf(undefined)).toBeNull();
     expect(bandOf(Number.NaN)).toBeNull();
-  });
-});
-
-describe('computeTrend', () => {
-  const day = 24;
-  it('improving when the recent half median is a point or more above the older half', () => {
-    const t = computeTrend([makePr('1', { score: 90, hours: 2 * day }), makePr('2', { score: 80, hours: 20 * day })], NOW);
-    expect(t).toEqual({ direction: 'improving', delta: 10 });
-  });
-  it('declining when it is a point or more below', () => {
-    const t = computeTrend([makePr('1', { score: 70, hours: 2 * day }), makePr('2', { score: 80, hours: 20 * day })], NOW);
-    expect(t).toEqual({ direction: 'declining', delta: -10 });
-  });
-  it('stable inside one point either way', () => {
-    expect(computeTrend([makePr('1', { score: 80.5, hours: 2 * day }), makePr('2', { score: 80, hours: 20 * day })], NOW).direction).toBe('stable');
-    expect(computeTrend([makePr('1', { score: 79.5, hours: 2 * day }), makePr('2', { score: 80, hours: 20 * day })], NOW).direction).toBe('stable');
-  });
-  it('uses medians, not means', () => {
-    const prs = [makePr('1', { score: 90, hours: day }), makePr('2', { score: 90, hours: 2 * day }), makePr('3', { score: 10, hours: 3 * day }), makePr('4', { score: 80, hours: 20 * day })];
-    expect(computeTrend(prs, NOW).delta).toBe(10);
-  });
-  it('unknown when one half is empty, PRs are unscored, have no data or are older than the window', () => {
-    expect(computeTrend([makePr('1', { hours: day })], NOW)).toEqual({ direction: 'unknown', delta: null });
-    expect(computeTrend([makePr('1', { hours: day }), makePr('2', { score: null, hours: 20 * day })], NOW).direction).toBe('unknown');
-    expect(computeTrend([makePr('1', { hours: day }), noData('2', 20 * day)], NOW).direction).toBe('unknown');
-    expect(computeTrend([makePr('1', { hours: day }), makePr('2', { hours: 40 * day })], NOW).direction).toBe('unknown');
-    expect(computeTrend([], NOW).direction).toBe('unknown');
   });
 });
 

@@ -96,6 +96,21 @@ public class MutationMetrics implements Metrics {
     return "mutation_threshold";
   }
 
+  /** New-code score of the first run, before the agent wrote tests; the improvement is {@code new_mutation_score} minus this. */
+  public static String scoreBeforeKey() {
+    return "new_mutation_score_before";
+  }
+
+  /** Wall time of the whole agent run, in seconds. */
+  public static String durationKey() {
+    return "mutation_run_duration";
+  }
+
+  /** Free-text group of the component (a team or product area), from the property {@code sonar.mutation.portfolio}. */
+  public static String portfolioKey() {
+    return "mutation_portfolio";
+  }
+
   /** The language bucket a report language falls into. */
   public static String bucket(String language) {
     String l = language == null ? "" : language.toLowerCase(Locale.ROOT);
@@ -142,6 +157,12 @@ public class MutationMetrics implements Metrics {
     }
     all.add(build(thresholdKey(), "Mutation: Threshold", Metric.ValueType.PERCENT, 0,
         "Threshold the mutation agent used for its own gate (informational)", false));
+    all.add(build(scoreBeforeKey(), "Mutation: Score Before Agent (new code)", Metric.ValueType.PERCENT, 0,
+        "New-code mutation score of the first run, before the agent wrote tests (informational)", false));
+    all.add(build(durationKey(), "Mutation: Agent Run Duration (s)", Metric.ValueType.INT, 0,
+        "Seconds the agent took to scan, write tests and verify (informational)", false));
+    all.add(build(portfolioKey(), "Mutation: Portfolio", Metric.ValueType.STRING, 0,
+        "Group of the component, from the property sonar.mutation.portfolio (informational)", false));
     return all;
   }
 
