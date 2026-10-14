@@ -1,10 +1,15 @@
 import { codeUrl, fmtAge, fmtInt, fmtPct } from '../format';
-import { sortFilesWeakestFirst } from '../model';
+import { distribution, sortFilesWeakestFirst } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, FileRow, PrResult, SurvivorRow } from '../types';
 import { h } from './dom';
 import { scoreBar, statusPill } from './prList';
 import type { DetailRenderer } from './projectPage';
+import { barChart, card, distributionCard, legend, tile } from './widgets';
+
+/** Bars in the "weakest files" card. */
+const CHART_FILES = 6;
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 const LANGUAGES = ['typescript', 'javascript', 'csharp', 'java', 'python', 'go', 'other'];
 const LANG_FIELDS = ['total', 'killed', 'survived', 'score'];
@@ -25,8 +30,8 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
   const m = r.measures;
   const other = ['new_mutation_timed_out', 'new_mutation_memory_error', 'new_mutation_unknown'].map((k) => m[k]);
   const otherSum = other.every((v) => v === undefined) ? null : other.reduce<number>((a, v) => a + (v ?? 0), 0);
-  const kpi = (n: string, v: string, l: string, cls = '') =>
-    h('div', { class: 'md-kpi', 'data-tile': n }, h('div', { class: `v ${cls}` }, v), h('div', { class: 'l' }, l));
+  const dist = distribution([r]);
+  const weakest = h('div', {}, h('p', { class: 'md-empty' }, 'Loading files...'));
 
   const panels: Record<string, HTMLElement> = {
     files: h('div', { 'data-panel': 'files' }, h('p', { class: 'md-muted' }, 'Loading files...')),
@@ -57,14 +62,17 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
         h('div', { class: 'm' }, `new-code score · threshold ${r.threshold}%${r.thresholdAssumed ? ' (assumed)' : ''}`)),
     ),
     h('div', { class: 'md-kpis' },
-      kpi('total', fmtInt(m.new_mutation_total), 'mutants in changed lines'),
-      kpi('killed', fmtInt(m.new_mutation_killed), 'killed by tests', 'md-pass'),
-      kpi('survived', fmtInt(m.new_mutation_survived), 'survived', 'md-fail'),
-      kpi('noCoverage', fmtInt(m.new_mutation_no_coverage), 'no coverage', 'md-fail'),
-      kpi('other', fmtInt(otherSum), 'timeout / memory / unknown'),
-      kpi('strength', fmtPct(m.new_mutation_test_strength), 'test strength')),
-    h('div', { class: 'md-tabs' }, tab('files', 'Files'), tab('survivors', 'Survivors'), tab('languages', 'Languages'), tab('metrics', 'All metrics')),
-    panels.files, panels.survivors, panels.languages, panels.metrics));
+      tile('total', 'Mutants in changed lines', fmtInt(m.new_mutation_total), `${fmtInt(m.new_mutation_killed)} killed by tests`),
+      tile('alive', 'Alive mutants', fmtInt(dist.alive), `${fmtInt(dist.survived)} survived, ${fmtInt(dist.noCoverage)} no coverage`, dist.alive ? 'md-fail' : ''),
+      tile('strength', 'Test strength', fmtPct(m.new_mutation_test_strength), 'killed / (killed + survived)'),
+      tile('other', 'Timeout / memory / unknown', fmtInt(otherSum), 'not counted as killed')),
+    h('div', { class: 'md-cards' },
+      card('Weakest Files', 'files', weakest, h('p', { class: 'md-note2' }, 'Black tick on each bar = threshold.')),
+      distributionCard('Mutant Distribution (changed lines)', dist)),
+    card('Pull Request Details', 'details',
+      h('div', { class: 'md-tabs' }, tab('files', 'Files'), tab('survivors', 'Survivors'), tab('languages', 'Languages'), tab('metrics', 'All metrics')),
+      panels.files, panels.survivors, panels.languages, panels.metrics,
+      legend())));
   select('files');
 
   async function loadFilesAndSurvivors(): Promise<void> {
@@ -81,11 +89,22 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
     panels.survivors.replaceChildren(survErr ? h('p', { class: 'md-fail' }, `Could not load survivors: ${survErr}`)
       : survivors.length ? survivorTable(survivors, projectKey, r.pr.key, true) : h('p', { class: 'md-muted' }, 'No surviving mutants in the changed lines.'));
 
-    if (filesErr) { panels.files.replaceChildren(h('p', { class: 'md-fail' }, `Could not load files: ${filesErr}`)); return; }
-    if (files.length === 0) { panels.files.replaceChildren(h('p', { class: 'md-muted' }, 'No files with mutation data.')); return; }
+    if (filesErr) {
+      weakest.replaceChildren(h('p', { class: 'md-fail' }, `Could not load files: ${filesErr}`));
+      panels.files.replaceChildren(h('p', { class: 'md-fail' }, `Could not load files: ${filesErr}`));
+      return;
+    }
+    if (files.length === 0) {
+      weakest.replaceChildren(barChart([], 'No files with mutation data.'));
+      panels.files.replaceChildren(h('p', { class: 'md-muted' }, 'No files with mutation data.'));
+      return;
+    }
+    weakest.replaceChildren(barChart(
+      files.filter((f) => f.score !== null).slice(0, CHART_FILES).map((f) => ({ key: f.fileKey, label: baseName(f.path), pct: f.score as number, tick: r.threshold })),
+      'No scored files.'));
 
     let selected = files[0].fileKey;
-    const right = h('div', { style: 'max-width:340px' });
+    const right = h('div', { style: 'flex:2' });
     const table = h('tbody', {});
     const paintRight = () => {
       const f = files.find((x) => x.fileKey === selected)!;
@@ -95,14 +114,14 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
     const paintRows = () => table.replaceChildren(...files.map((f) =>
       h('tr', { 'data-file': f.fileKey, class: f.fileKey === selected ? 'selected' : '', style: 'cursor:pointer', onclick: () => { selected = f.fileKey; paintRows(); paintRight(); } },
         h('td', {}, f.path), h('td', {}, f.language),
-        h('td', { 'data-col': 'score', class: f.score !== null && f.score < r.threshold ? 'md-fail' : '' }, fmtPct(f.score)),
-        h('td', { 'data-col': 'alive' }, fmtInt(f.alive)), h('td', {}, fmtInt(f.changedLines)),
-        h('td', { class: 'md-muted' }, fmtPct(f.wholeFileScore)))));
+        h('td', { 'data-col': 'score', class: `num ${f.score !== null && f.score < r.threshold ? 'md-fail' : ''}` }, fmtPct(f.score)),
+        h('td', { 'data-col': 'alive', class: 'num' }, fmtInt(f.alive)), h('td', { class: 'num' }, fmtInt(f.changedLines)),
+        h('td', { class: 'num md-muted' }, fmtPct(f.wholeFileScore)))));
     paintRows();
     paintRight();
     panels.files.replaceChildren(h('div', { class: 'md-row' },
-      h('div', {}, h('div', { class: 'md-lbl' }, 'Files - weakest first'),
-        h('table', { class: 'md-table' }, h('thead', {}, h('tr', {}, ...['File', 'Lang', 'New-code score', 'Alive', 'Changed lines', 'Whole file'].map((t) => h('th', {}, t)))), table)),
+      h('div', { style: 'flex:3' }, h('div', { class: 'md-lbl' }, 'Files - weakest first'),
+        h('table', { class: 'md-table' }, h('thead', {}, h('tr', {}, ...['File', 'Lang', 'New-code score', 'Alive', 'Changed lines', 'Whole file'].map((t) => h('th', { class: ['File', 'Lang'].includes(t) ? '' : 'num' }, t)))), table)),
       right));
   }
 
@@ -112,10 +131,10 @@ export const renderPrDetail: DetailRenderer = async (root, data, projectKey, r, 
       const v = await data.loadAllMeasures(projectKey, r.pr.key, keys);
       const langs = LANGUAGES.filter((l) => v[`new_mutation_${l}_total`] !== undefined);
       panels.languages.replaceChildren(langs.length === 0 ? h('p', { class: 'md-muted' }, 'No per-language data.')
-        : h('table', { class: 'md-table' }, h('thead', {}, h('tr', {}, ...['Language', 'Mutants', 'Killed', 'Survived', 'Score'].map((t) => h('th', {}, t)))),
-          h('tbody', {}, ...langs.map((l) => h('tr', { 'data-lang': l }, h('td', {}, l), h('td', {}, fmtInt(v[`new_mutation_${l}_total`])),
-            h('td', {}, fmtInt(v[`new_mutation_${l}_killed`])), h('td', {}, fmtInt(v[`new_mutation_${l}_survived`])),
-            h('td', { 'data-col': 'score' }, fmtPct(v[`new_mutation_${l}_score`])))))));
+        : h('table', { class: 'md-table' }, h('thead', {}, h('tr', {}, ...['Language', 'Mutants', 'Killed', 'Survived', 'Score'].map((t) => h('th', { class: t === 'Language' ? '' : 'num' }, t)))),
+          h('tbody', {}, ...langs.map((l) => h('tr', { 'data-lang': l }, h('td', {}, l), h('td', { class: 'num' }, fmtInt(v[`new_mutation_${l}_total`])),
+            h('td', { class: 'num' }, fmtInt(v[`new_mutation_${l}_killed`])), h('td', { class: 'num' }, fmtInt(v[`new_mutation_${l}_survived`])),
+            h('td', { 'data-col': 'score', class: 'num' }, fmtPct(v[`new_mutation_${l}_score`])))))));
     } catch (e) {
       panels.languages.replaceChildren(h('p', { class: 'md-fail' }, `Could not load languages: ${msg(e)}`));
     }

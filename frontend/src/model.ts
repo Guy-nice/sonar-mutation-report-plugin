@@ -133,3 +133,85 @@ export function sortFilesWeakestFirst(files: FileRow[]): FileRow[] {
     return a.score - b.score;
   });
 }
+
+export type Band = 'excellent' | 'good' | 'fair' | 'needs';
+
+export const BANDS: Array<{ band: Band; label: string; range: string; min: number }> = [
+  { band: 'excellent', label: 'Excellent', range: '90%+', min: 90 },
+  { band: 'good', label: 'Good', range: '85–89%', min: 85 },
+  { band: 'fair', label: 'Fair', range: '75–84%', min: 75 },
+  { band: 'needs', label: 'Needs Work', range: '<75%', min: -Infinity },
+];
+
+/** Presentation band of a mutation score. This is not the quality gate: the gate is the per-project threshold. */
+export function bandOf(score: number | null | undefined): Band | null {
+  if (score === null || score === undefined || Number.isNaN(score)) return null;
+  return (BANDS.find((b) => score >= b.min) as (typeof BANDS)[number]).band;
+}
+
+export function bandLabel(band: Band): string {
+  return (BANDS.find((b) => b.band === band) as (typeof BANDS)[number]).label;
+}
+
+export const TREND_HALF_DAYS = WINDOW_DAYS / 2;
+/** Median moves smaller than this many points count as stable. */
+export const TREND_EPSILON = 1;
+
+export interface Trend {
+  direction: 'improving' | 'declining' | 'stable' | 'unknown';
+  /** Median score of the recent half minus the older half, in points. Null when direction is unknown. */
+  delta: number | null;
+}
+
+/** Median new-code score of the last 15 days against the 15 days before. Unknown when either half has no scored PR. */
+export function computeTrend(prs: PrResult[], now: Date): Trend {
+  const scored = prs.filter((r) => r.hasData && r.score !== null);
+  const recent: number[] = [];
+  const older: number[] = [];
+  for (const r of scored) {
+    const age = ageDays(r.pr.analysisDate, now);
+    if (Number.isNaN(age) || age > WINDOW_DAYS) continue;
+    (age <= TREND_HALF_DAYS ? recent : older).push(r.score as number);
+  }
+  const a = median(recent);
+  const b = median(older);
+  if (a === null || b === null) return { direction: 'unknown', delta: null };
+  const delta = a - b;
+  const direction = delta >= TREND_EPSILON ? 'improving' : delta <= -TREND_EPSILON ? 'declining' : 'stable';
+  return { direction, delta };
+}
+
+export interface Distribution {
+  killed: number;
+  survived: number;
+  noCoverage: number;
+  /** timeout + memory error + unknown: neither killed nor alive in the bar. */
+  other: number;
+  /** survived + no coverage. */
+  alive: number;
+  /** Share of killed among killed + alive, in percent. Null when both are zero. */
+  killedPct: number | null;
+}
+
+export function distribution(prs: PrResult[]): Distribution {
+  let killed = 0;
+  let survived = 0;
+  let noCoverage = 0;
+  let other = 0;
+  for (const r of prs) {
+    if (!r.hasData) continue;
+    const m = r.measures;
+    killed += m.new_mutation_killed ?? 0;
+    survived += m.new_mutation_survived ?? 0;
+    noCoverage += m.new_mutation_no_coverage ?? 0;
+    other += (m.new_mutation_timed_out ?? 0) + (m.new_mutation_memory_error ?? 0) + (m.new_mutation_unknown ?? 0);
+  }
+  const alive = survived + noCoverage;
+  return { killed, survived, noCoverage, other, alive, killedPct: killed + alive > 0 ? (killed / (killed + alive)) * 100 : null };
+}
+
+/** Date (YYYY-MM-DD) of the most recent analysis, or null when there is none. */
+export function lastUpdated(prs: PrResult[]): string | null {
+  const times = prs.map((r) => new Date(r.pr.analysisDate).getTime()).filter((t) => !Number.isNaN(t));
+  return times.length ? new Date(Math.max(...times)).toISOString().slice(0, 10) : null;
+}

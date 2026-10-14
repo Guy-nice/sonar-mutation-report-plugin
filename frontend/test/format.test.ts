@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { codeUrl, fmtAge, fmtInt, fmtPct, projectPageUrl, scoreColor, sonarBase } from '../src/format';
+import { codeUrl, fmtAge, fmtInt, fmtPct, projectPageUrl, sonarBase } from '../src/format';
 import { NOW, hoursAgo } from './fixtures';
 
 afterEach(() => {
@@ -44,13 +44,5 @@ describe('urls', () => {
   });
   it('no baseUrl and no line', () => {
     expect(codeUrl('p', '1', 'p:a.ts')).toBe('/code?id=p&pullRequest=1&selected=p%3Aa.ts');
-  });
-});
-
-describe('scoreColor', () => {
-  it('green at or above threshold, orange below, grey for null', () => {
-    expect(scoreColor(80, 80)).toBe('#00aa00');
-    expect(scoreColor(79, 80)).toBe('#ed7d20');
-    expect(scoreColor(null, 80)).toBe('#8a95a5');
   });
 });

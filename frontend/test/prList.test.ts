@@ -25,24 +25,40 @@ describe('PR list', () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
     expect(keys()).toEqual(['14', '13', '12', '10']);
     expect(tile('failingOpen')).toBe('1');
-    expect(tile('withData')).toBe('3 / 4');
+    expect(root.querySelector('.md-sub')?.textContent).toContain('3 of 4 PRs have mutation data');
     expect(tile('passRate')).toBe('67%');
+  });
+
+  it('cards: recent PR score bars and the mutant distribution', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['14', '13', '10']);
+    expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('41');
+  });
+
+  it('changing a filter keeps the chosen option and repaints only the table', async () => {
+    await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    const select = root.querySelector<HTMLSelectElement>('select[data-filter="status"]')!;
+    select.value = 'failing';
+    select.dispatchEvent(new Event('change'));
+    expect(keys()).toEqual(['14']);
+    expect(root.querySelector<HTMLSelectElement>('select[data-filter="status"]')).toBe(select);
+    expect(select.value).toBe('failing');
   });
 
   it('shows status, score and counts; dashes for a PR without data', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('14', 'status')).toBe('FAIL');
+    expect(cell('14', 'gate')).toBe('FAIL');
     expect(cell('14', 'score')).toContain('70.9%');
     expect(cell('14', 'survived')).toBe('19');
-    expect(cell('13', 'status')).toBe('PASS');
-    expect(cell('12', 'status')).toBe('NO DATA');
+    expect(cell('13', 'gate')).toBe('PASS');
+    expect(cell('12', 'gate')).toBe('NO DATA');
     expect(cell('12', 'score')).toBe('-');
     expect(cell('12', 'survived')).toBe('-');
   });
 
   it('a score equal to the threshold shows PASS', async () => {
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('10', 'status')).toBe('PASS');
+    expect(cell('10', 'gate')).toBe('PASS');
   });
 
   it('status filter', async () => {
@@ -84,7 +100,7 @@ describe('PR list', () => {
   it('a PR with data but no score shows NO SCORE and stays out of the pass rate', async () => {
     const d = new FakeData([project('p', [makePr('1', { score: 90 }), makePr('2', { score: null })])]);
     await renderPrList(root, d, { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(cell('2', 'status')).toBe('NO SCORE');
+    expect(cell('2', 'gate')).toBe('NO SCORE');
     expect(tile('passRate')).toBe('100%');
   });
 
