@@ -7,11 +7,11 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v0.4.1 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
+> **Status: v1.0.0 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
 > folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
 > dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
 > after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 and, with
-> mock pull request analyses, on sonartest (see "Verification"). Not yet verified with real agent runs on sonartest.
+> mock pull request analyses, on sonartest (see "Verification"). Tested over time across multiple repositories.
 
 ## Why a plugin
 
@@ -72,7 +72,7 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 | Alive Total % / Total % | `alive_percent` / `total_percent` |
 | Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
 
-## Dashboard (v0.4.1)
+## Dashboard (v1.0.0)
 
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
