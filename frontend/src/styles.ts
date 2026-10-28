@@ -66,6 +66,24 @@ export const CSS = `
 .md-filters{display:flex;gap:14px;align-items:center;margin:0 0 12px;font-size:13px;color:#4a5568}
 .md-filters select{font:inherit;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;background:#fff}
 .md-lbl{font-size:12px;color:#64748b;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px}
+.md-kpi .v .md-arrow{color:#64748b;font-weight:400;margin:0 4px}
+.md-up{color:${GREEN_DARK};font-weight:700}.md-dn{color:#dc4c4c;font-weight:700}
+.md-pair{display:flex;flex-direction:column;gap:16px}
+.md-pr{display:grid;grid-template-columns:170px 1fr 92px;gap:14px;align-items:center;font-size:13px}
+.md-pr .n{color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.md-pr .tr{display:flex;flex-direction:column;gap:4px}
+.md-pr .md-track{height:14px}
+.md-pr .md-track.before .md-fill{background:#cbd5e1}
+.md-pr .md-tick{top:-3px;height:20px}
+.md-pr .p{text-align:right;font-weight:700;white-space:nowrap}
+.md-pr .p .was{color:#94a3b8;font-weight:600}
+.md-key{display:flex;gap:18px;font-size:12px;color:#4a5568;margin:16px 0 0}
+.md-key i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.md-key i.before{background:#cbd5e1}.md-key i.after{background:${GREEN}}
+.md-key b{display:inline-block;width:2px;height:13px;background:#1a202c;margin-right:6px;vertical-align:-2px}
+.md-gate .a{color:#64748b}.md-gate .arr{color:#94a3b8;margin:0 4px}.md-gate .b{font-weight:700}
+.md-gate .b.ok{color:${GREEN_DARK}}.md-gate .b.bad{color:#dc4c4c}
+.md-table tr.md-sum td{border-top:2px solid #e2e8f0;border-bottom:0;font-weight:700;background:#f1f5f9}
 @media (max-width:900px){.md-kpis{grid-template-columns:repeat(2,1fr)}.md-cards{grid-template-columns:1fr}.md{padding:16px}}
 `;
 

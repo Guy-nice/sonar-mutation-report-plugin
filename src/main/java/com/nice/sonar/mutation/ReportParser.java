@@ -36,10 +36,11 @@ public final class ReportParser {
     JsonObject summaryJson = requireObject(root, "summary", "report");
     Report.Scoped summary = scoped(summaryJson, "summary");
 
-    Double threshold = null;
-    if (root.has("run") && root.get("run").isJsonObject() && root.getAsJsonObject("run").has("threshold")) {
-      threshold = root.getAsJsonObject("run").get("threshold").getAsDouble();
-    }
+    JsonObject run = root.has("run") && root.get("run").isJsonObject() ? root.getAsJsonObject("run") : new JsonObject();
+    Double threshold = run.has("threshold") ? run.get("threshold").getAsDouble() : null;
+    // Informational run facts: a value that is missing, not a number or out of range is dropped, never an error.
+    Double scoreBefore = optNumber(run, "scoreBefore", 0, 100);
+    Double durationSec = optNumber(run, "durationSec", 0, Long.MAX_VALUE);
 
     Map<String, Report.Scoped> languages = new LinkedHashMap<>();
     if (root.has("languages")) {
@@ -73,7 +74,16 @@ public final class ReportParser {
             m.has("operator") ? m.get("operator").getAsString() : "unknown", status));
       }
     }
-    return new Report(version, threshold, summary, languages, files, mutants);
+    return new Report(version, threshold, scoreBefore, durationSec == null ? null : Math.round(durationSec),
+        summary, languages, files, mutants);
+  }
+
+  private static Double optNumber(JsonObject o, String key, double min, double max) {
+    if (!o.has(key) || !o.get(key).isJsonPrimitive() || !o.get(key).getAsJsonPrimitive().isNumber()) {
+      return null;
+    }
+    double v = o.get(key).getAsDouble();
+    return Double.isNaN(v) || v < min || v > max ? null : v;
   }
 
   private static Report.Scoped scoped(JsonObject parent, String where) {

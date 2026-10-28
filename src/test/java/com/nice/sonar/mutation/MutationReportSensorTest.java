@@ -79,6 +79,28 @@ class MutationReportSensorTest {
   }
 
   @Test
+  void publishesTheRunFactsAndThePortfolioWhenGiven() throws IOException {
+    report(TestReports.VALID);
+    context.settings().setProperty(MutationReportSensor.PORTFOLIO, "  Routing ");
+    new MutationReportSensor().execute(context);
+
+    assertThat(projectDouble("new_mutation_score_before")).isEqualTo(55.5);
+    assertThat(projectInt("mutation_run_duration")).isEqualTo(754);
+    assertThat(context.measure(context.project().key(), "mutation_portfolio").value()).isEqualTo("Routing");
+  }
+
+  @Test
+  void leavesTheRunFactsAndPortfolioOutWhenAbsent() throws IOException {
+    report("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"killed\":1}}}");
+    context.settings().setProperty(MutationReportSensor.PORTFOLIO, "   ");
+    new MutationReportSensor().execute(context);
+
+    assertThat(context.measure(context.project().key(), "new_mutation_score_before")).isNull();
+    assertThat(context.measure(context.project().key(), "mutation_run_duration")).isNull();
+    assertThat(context.measure(context.project().key(), "mutation_portfolio")).isNull();
+  }
+
+  @Test
   void leavesPercentagesToTheServerSideComputers() throws IOException {
     report(TestReports.VALID);
     new MutationReportSensor().execute(context);

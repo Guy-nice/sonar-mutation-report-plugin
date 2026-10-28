@@ -9,7 +9,7 @@ final class TestReports {
       {
         "schemaVersion": 1,
         "futureField": "ignored by this plugin",
-        "run": { "runId": "r1", "threshold": 80 },
+        "run": { "runId": "r1", "threshold": 80, "scoreBefore": 55.5, "durationSec": 754 },
         "summary": {
           "overall": { "total": 30, "killed": 22, "timedOut": 1, "memoryError": 1, "survived": 5,
                        "noCoverage": 1, "suppressed": 2, "testsExecuted": 90, "testKills": 24 },

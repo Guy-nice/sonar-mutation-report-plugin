@@ -1,24 +1,55 @@
-import { fmtAge, fmtPct, projectPageUrl } from '../format';
+import { fmtDate, fmtDuration, fmtPct, projectPageUrl, sonarBase } from '../format';
 import {
-  distribution, inWindow, isFailing, isNoPrAnalysis, sortProjects, summarizeOverview, summarizeProject,
+  distribution, gateOf, hasBefore, inWindow, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
   type ProjectSummary, type SortDir, type SortKey,
 } from '../model';
 import { injectStyles } from '../styles';
-import type { DataSource, PrResult, ProjectRef, ProjectResult } from '../types';
+import type { DataSource, ProjectRef, ProjectResult } from '../types';
 import { clear, h } from './dom';
-import { DISTRIBUTION_TITLE, bandPill, barChart, card, distributionCard, legend, pageHeader, summaryTiles } from './widgets';
+import {
+  DISTRIBUTION_TITLE, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
+} from './widgets';
 
 const TITLE = 'Mutation overview';
+/** The portfolio filter value for components without a portfolio. */
+const NO_PORTFOLIO = '\u0000none';
+/** Longest wait between repaints while projects stream in. */
+const PAINT_MS = 250;
+const ADOPTERS_KEY = 'mutation-dashboard-adopters:';
 
-/** `num` columns are right-aligned. Status has no sort key: it is a band of the median score. */
+/** Keys of the projects that had mutation data on an earlier visit (this browser, this server). Never throws. */
+function knownAdopters(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(ADOPTERS_KEY + sonarBase());
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberAdopter(key: string): void {
+  try {
+    const known = knownAdopters();
+    if (known.has(key)) return;
+    known.add(key);
+    globalThis.localStorage?.setItem(ADOPTERS_KEY + sonarBase(), JSON.stringify([...known]));
+  } catch {
+    // storage full or disabled: the order of loading is only an optimization
+  }
+}
+
+/** `num` columns are right-aligned. Gate and Status have no sort key: they are derived from the scores. */
 const COLUMNS: Array<{ key: SortKey | null; label: string; num?: boolean }> = [
-  { key: 'name', label: 'Project' },
-  { key: 'failingOpen', label: 'Failing open PRs', num: true },
-  { key: 'passRate', label: 'Pass rate 30d', num: true },
-  { key: 'medianScore', label: 'Median score', num: true },
+  { key: 'name', label: 'Component' },
+  { key: 'portfolio', label: 'Portfolio' },
+  { key: 'before', label: 'Before', num: true },
+  { key: 'after', label: 'After', num: true },
+  { key: 'change', label: 'Change (pts)', num: true },
+  { key: null, label: 'Mutation gate' },
   { key: null, label: 'Status' },
-  { key: 'adoption', label: 'Adoption', num: true },
-  { key: 'latest', label: 'Latest PR' },
+  { key: 'scan', label: 'Last scan' },
+  { key: 'time', label: 'Time taken', num: true },
 ];
 
 export function renderOverview(root: HTMLElement, data: DataSource, now: () => Date = () => new Date()): { reload(): Promise<void>; dispose(): void } {
@@ -26,58 +57,69 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   const results = new Map<string, ProjectResult>();
   let projects: ProjectRef[] = [];
   let loading = true;
-  let sortKey: SortKey = 'failingOpen';
-  let sortDir: SortDir = 'desc';
-  let onlyWithData = false;
+  /** Weakest components first: that is where a manager looks. */
+  let sortKey: SortKey = 'after';
+  let sortDir: SortDir = 'asc';
+  /** On by default: a server can hold thousands of projects and almost all of them have no mutation data. */
+  let onlyWithData = true;
+  let portfolio = '';
   /** Bumped by every load and by dispose: results of an older load are dropped. */
   let loadId = 0;
+  let paintTimer: ReturnType<typeof setTimeout> | null = null;
 
   const body = h('div', { class: 'md' });
   root.replaceChildren(body);
-
-  function latestCell(s: ProjectSummary): HTMLElement {
-    const td = h('td', { 'data-col': 'latest' });
-    if (s.error) return td;
-    if (s.total === 0) {
-      td.append(h('span', { class: 'md-muted' }, 'no PRs in the last 30 days'));
-      return td;
-    }
-    const r = s.latest as PrResult;
-    if (!r.hasData) {
-      td.append(`#${r.pr.key} `, h('span', { class: 'md-muted' }, 'no mutation data'));
-      return td;
-    }
-    if (r.score === null) {
-      td.append(`#${r.pr.key} `, h('span', { class: 'md-pill none' }, 'NO SCORE'), ` ${fmtAge(r.pr.analysisDate, now())}`);
-      return td;
-    }
-    const failing = isFailing(r);
-    td.append(`#${r.pr.key} `, h('span', { class: `md-pill ${failing ? 'fail' : 'pass'}` }, `${failing ? 'FAIL' : 'PASS'} ${fmtPct(r.score)}`), ` ${fmtAge(r.pr.analysisDate, now())}`);
-    return td;
-  }
 
   function row(s: ProjectSummary): HTMLElement {
     const tr = h('tr', { 'data-project': s.key });
     tr.append(h('td', {}, h('a', { href: projectPageUrl(s.key) }, h('b', {}, s.name))));
     if (s.error) {
       tr.append(
-        h('td', { 'data-col': 'failing', colspan: 6 }, h('span', { class: 'md-muted' }, `unavailable (${s.error}) `),
+        h('td', { 'data-col': 'error', colspan: COLUMNS.length - 1 }, h('span', { class: 'md-muted' }, `unavailable (${s.error}) `),
           h('button', { class: 'md-link', 'data-action': 'retry', onclick: () => retry(s.key) }, 'retry')),
       );
       return tr;
     }
+    const gate = gateOf(s);
     tr.append(
-      h('td', { 'data-col': 'failing', class: `num ${s.failingOpen ? 'md-fail' : 'md-muted'}` }, String(s.failingOpen)),
-      h('td', { 'data-col': 'passRate', class: 'num' }, fmtPct(s.passRate, s.passRate === null ? 1 : 0)),
-      h('td', { 'data-col': 'median', class: 'num' }, fmtPct(s.medianScore)),
-      h('td', { 'data-col': 'status' }, bandPill(s.medianScore)),
-      h('td', { 'data-col': 'adoption', class: `num ${s.total > 0 && s.withData === 0 ? 'md-fail' : ''}` }, `${s.withData} / ${s.total}${s.withData > 0 ? ' PRs' : ''}`),
-      latestCell(s),
+      h('td', { 'data-col': 'portfolio' }, s.portfolio ?? h('span', { class: 'md-muted' }, '-')),
+      h('td', { 'data-col': 'before', class: 'num' }, fmtPct(s.before)),
+      h('td', { 'data-col': 'after', class: 'num' }, fmtPct(s.after)),
+      h('td', { 'data-col': 'change', class: 'num' }, changeCell(s.change)),
+      h('td', { 'data-col': 'gate' }, gateChange(gate.before, gate.after)),
+      h('td', { 'data-col': 'status' }, bandPill(s.after)),
+      h('td', { 'data-col': 'scan' }, s.scanDate ? fmtDate(s.scanDate) : h('span', { class: 'md-muted' }, s.total === 0 ? 'no PRs in the last 30 days' : 'never scanned')),
+      h('td', { 'data-col': 'time', class: 'num' }, fmtDuration(s.durationSec)),
     );
     return tr;
   }
 
+  /** Mean of the components that report both scores, so the row compares like with like. */
+  function totalsRow(rows: ProjectSummary[]): HTMLElement | null {
+    const both = rows.filter((s) => s.scanned && hasBefore(s.scanned));
+    if (both.length === 0) return null;
+    const before = mean(both.map((s) => s.before as number)) as number;
+    const after = mean(both.map((s) => s.after as number)) as number;
+    const passBefore = both.filter((s) => gateOf(s).before).length;
+    const passAfter = both.filter((s) => gateOf(s).after).length;
+    const times = rows.filter((s) => s.durationSec !== null).map((s) => s.durationSec as number);
+    return h('tr', { class: 'md-sum', 'data-row': 'total' },
+      h('td', {}, 'All components'), h('td', {}),
+      h('td', { class: 'num' }, fmtPct(before)), h('td', { class: 'num' }, fmtPct(after)),
+      h('td', { class: 'num' }, changeCell(after - before)),
+      h('td', {}, h('span', { class: 'md-gate' }, h('span', { class: 'a' }, `${passBefore} pass`), h('span', { class: 'arr' }, '→'), h('span', { class: 'b' }, `${passAfter} pass`))),
+      h('td', {}), h('td', {}),
+      h('td', { class: 'num' }, times.length ? fmtDuration(times.reduce((a, v) => a + v, 0)) : '-'));
+  }
+
+  /** While projects stream in, repaint at most every PAINT_MS: one repaint per project is quadratic on a big server. */
+  function schedulePaint(): void {
+    if (paintTimer !== null) return;
+    paintTimer = setTimeout(() => { paintTimer = null; paint(); }, PAINT_MS);
+  }
+
   function paint(): void {
+    if (paintTimer !== null) { clearTimeout(paintTimer); paintTimer = null; }
     const list = [...results.values()];
     if (!loading && list.length > 0 && list.every((r) => isNoPrAnalysis(r.error))) {
       clear(body);
@@ -88,14 +130,17 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const o = summarizeOverview(list, now());
     const windowPrs = list.filter((r) => !r.error).flatMap((r) => r.prs.filter((p) => inWindow(p, now())));
     const all = list.map((r) => summarizeProject(r, now()));
+    const portfolios = [...new Set(all.map((s) => s.portfolio).filter((p): p is string => p !== null))].sort((a, b) => a.localeCompare(b));
     let summaries = all;
+    const hiddenCount = all.filter((s) => s.withData === 0 && s.error === null).length;
     if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
+    if (portfolio) summaries = summaries.filter((s) => (portfolio === NO_PORTFOLIO ? s.portfolio === null : s.portfolio === portfolio));
     summaries = sortProjects(summaries, sortKey, sortDir);
 
-    const scoreBars = all
-      .filter((s) => s.medianScore !== null)
-      .sort((a, b) => (b.medianScore as number) - (a.medianScore as number) || a.name.localeCompare(b.name))
-      .map((s) => ({ key: s.key, label: s.name, pct: s.medianScore as number }));
+    const pairs = all
+      .filter((s) => s.after !== null)
+      .sort((a, b) => (b.after as number) - (a.after as number) || a.name.localeCompare(b.name))
+      .map((s) => ({ key: s.key, label: s.name, before: s.before, after: s.after as number, tick: (s.scanned as { threshold: number }).threshold }));
 
     const head = h('tr', {}, ...COLUMNS.map((c) => {
       const num = c.num ? 'num ' : '';
@@ -103,34 +148,40 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       const key = c.key;
       return h('th', { class: `sortable ${num}${sortKey === key ? sortDir : ''}`, 'data-sort': key, onclick: () => {
         if (sortKey === key) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
-        else { sortKey = key; sortDir = key === 'name' ? 'asc' : 'desc'; }
+        else { sortKey = key; sortDir = key === 'name' || key === 'portfolio' ? 'asc' : 'desc'; }
         paint();
       } }, c.label);
     }));
 
+    const totals = totalsRow(summaries.filter((s) => !s.error));
     clear(body);
     body.append(
-      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} of ${o.projectsTotal} projects use mutation`),
+      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} of ${o.projectsTotal} components use mutation`),
       summaryTiles(windowPrs, now()),
       h('div', { class: 'md-cards' },
-        card('Median Score by Project', 'scores', barChart(scoreBars, loading ? 'Loading...' : 'No project has a score yet.')),
+        card('Before → After Agent, by Component', 'scores', pairedBarChart(pairs, loading ? 'Loading...' : 'No component has a score yet.')),
         distributionCard(DISTRIBUTION_TITLE, distribution(windowPrs))),
-      card('Project Details', 'details',
+      card('Component changes', 'details',
         h('div', { class: 'md-filters' },
           h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
             onlyWithData = (e.target as HTMLInputElement).checked;
             paint();
-          } }), ' Only projects with mutation data'),
+          } }), ` Only components with mutation data${onlyWithData && hiddenCount > 0 ? ` (${hiddenCount} without data hidden)` : ''}`),
+          portfolios.length === 0 ? null : h('label', {}, 'Portfolio ',
+            h('select', { 'data-filter': 'portfolio', onchange: (e: Event) => { portfolio = (e.target as HTMLSelectElement).value; paint(); } },
+              h('option', { value: '', ...(portfolio === '' ? { selected: 'selected' } : {}) }, 'All'),
+              ...portfolios.map((p) => h('option', { value: p, ...(portfolio === p ? { selected: 'selected' } : {}) }, p)),
+              h('option', { value: NO_PORTFOLIO, ...(portfolio === NO_PORTFOLIO ? { selected: 'selected' } : {}) }, 'No portfolio'))),
           h('span', {}, 'Last 30 days'),
           h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh'),
-          loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} projects...`) : null),
+          loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} components...`) : null),
         projects.length === 0 && !loading
-          ? h('p', { class: 'md-muted' }, 'No projects found.')
+          ? h('p', { class: 'md-muted' }, 'No components found.')
           : summaries.length === 0 && !loading
-            ? h('p', { class: 'md-muted' }, 'No projects with mutation data.')
-            : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row))),
+            ? h('p', { class: 'md-muted' }, 'No components with mutation data.')
+            : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row), totals)),
         legend(),
-        h('p', { class: 'md-note2' }, 'Status is the band of the median score; the quality gate is each project\'s threshold. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')),
+        h('p', { class: 'md-note2' }, 'Each row is the component\'s most recent pull request with mutation data. Before = new-code score of its first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the component\'s threshold. Status is the band of the After score. Time taken = the whole agent run. The last row averages the components that report both scores.')),
     );
   }
 
@@ -153,12 +204,14 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     try {
       const list = await data.listProjects();
       if (id !== loadId) return;
-      projects = list;
+      // Projects that had mutation data last time load first, so the page fills in at once on a big server.
+      const known = knownAdopters();
+      projects = [...list].sort((a, b) => Number(known.has(b.key)) - Number(known.has(a.key)));
     } catch (e) {
       if (id !== loadId) return;
       loading = false;
       clear(body);
-      body.append(h('h1', {}, TITLE), h('p', { class: 'md-fail' }, `Could not load projects: ${e instanceof Error ? e.message : String(e)}`));
+      body.append(h('h1', {}, TITLE), h('p', { class: 'md-fail' }, `Could not load components: ${e instanceof Error ? e.message : String(e)}`));
       return;
     }
     paint();
@@ -166,7 +219,8 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       const res = await data.loadProject(p);
       if (id !== loadId) return;
       results.set(p.key, res);
-      paint();
+      if (res.prs.some((r) => r.hasData)) rememberAdopter(p.key);
+      schedulePaint();
     }));
     if (id !== loadId) return;
     loading = false;
@@ -175,5 +229,5 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   const reload = () => load(true);
   void load(false);
 
-  return { reload, dispose: () => { loadId++; } };
+  return { reload, dispose: () => { loadId++; if (paintTimer !== null) { clearTimeout(paintTimer); paintTimer = null; } } };
 }
