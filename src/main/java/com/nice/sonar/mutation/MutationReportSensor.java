@@ -11,7 +11,6 @@ import org.sonar.api.batch.fs.FilePredicates;
 import org.sonar.api.batch.fs.InputComponent;
 import org.sonar.api.batch.fs.InputFile;
 import org.sonar.api.batch.rule.Severity;
-import org.sonar.api.batch.sensor.Sensor;
 import org.sonar.api.batch.sensor.SensorContext;
 import org.sonar.api.batch.sensor.SensorDescriptor;
 import org.sonar.api.batch.sensor.issue.NewExternalIssue;
@@ -20,17 +19,22 @@ import org.sonar.api.issue.impact.SoftwareQuality;
 import org.sonar.api.rules.CleanCodeAttribute;
 import org.sonar.api.rules.RuleType;
 import org.sonar.api.measures.Metric;
+import org.sonar.api.scanner.sensor.ProjectSensor;
 import org.sonar.api.utils.log.Logger;
 import org.sonar.api.utils.log.Loggers;
 
 /**
  * Passive: reads the report the agent produced and publishes it. Runs no mutation testing.
  *
+ * Runs once per analysis (a project sensor), not once per module: the report is repo-wide, its paths are
+ * relative to the project root, and project measures can only be saved once. A module-level sensor would fail
+ * multi-module builds with "Can not add the same measure twice".
+ *
  * Publishes additive counts per file and for the project (folders are summed up by the computers, and
  * every percentage is derived server-side from counts), per-language project measures, and one external
  * issue per surviving or uncovered mutant.
  */
-public class MutationReportSensor implements Sensor {
+public class MutationReportSensor implements ProjectSensor {
 
   private static final Logger LOG = Loggers.get(MutationReportSensor.class);
   public static final String REPORT_PATH = "sonar.mutation.reportPath";
