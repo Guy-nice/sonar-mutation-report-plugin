@@ -183,8 +183,12 @@ class MutationReportSensorTest {
     assertThat(Sensor.class.isAssignableFrom(MutationReportSensor.class)).isFalse();
   }
 
+  /**
+   * Covers one report spanning several module directories. It cannot tell module-level from project-level
+   * execution (SensorContextTester calls execute directly): that is pinned by runsOncePerAnalysisAsAProjectSensor.
+   */
   @Test
-  void publishesFilesOfEveryModuleByRootRelativePath() throws IOException {
+  void publishesFilesAndIssuesForSeveralModulesFromOneReport() throws IOException {
     for (String path : new String[] {"impl/src/Const.java", "it/src/Util.java"}) {
       context.fileSystem().add(new TestInputFileBuilder("p", path).setModuleBaseDir(dir)
           .setLines(10).setOriginalLineEndOffsets(new int[10]).setOriginalLineStartOffsets(new int[10])

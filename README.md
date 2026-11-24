@@ -7,7 +7,7 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v1.0.0 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
+> **Status: v1.0.1 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
 > folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
 > dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
 > after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 and, with
@@ -174,6 +174,9 @@ Add one property to `sonar-project.properties` (or pass `-Dsonar.mutation.report
 
 The path is relative to the root project base directory (not a module directory). The sensor runs once per
 analysis, so multi-module Maven and Gradle builds are supported: report file paths stay relative to the root.
+Set `sonar.mutation.reportPath` at the root level (root pom, `sonar-project.properties`, `-D` on the command
+line, or the root Gradle project). A property set only in a submodule (child pom, Gradle `subprojects {}`) is
+not seen by the sensor and it is skipped silently (DEBUG log only).
 If the property is absent the sensor is skipped. If
 the file is missing the scan logs a warning and continues. A malformed file fails the scan with a clear
 error.
@@ -333,7 +336,7 @@ server runs: Administration > Marketplace > Installed, or `GET /api/plugins/inst
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.0.1 | 2026-11-24 | Fix: multi-module Maven/Gradle builds failed with "Can not add the same measure twice". The sensor now runs once per analysis (project sensor). A relative `sonar.mutation.reportPath` resolves against the root project directory. |
+| 1.0.1 | 2026-11-24 | Fix: multi-module Maven/Gradle builds failed with "Can not add the same measure twice". The sensor now runs once per analysis (project sensor). A relative `sonar.mutation.reportPath` resolves against the root project directory. The property must be set at root level: set only in a submodule, the sensor is skipped. |
 | 1.0.0 | 2026-10-28 | First stable release. Dashboard (overview and project pages), before/after the agent, run duration, scan date, optional portfolio, performance and correctness fixes. |
 | 0.4.1 | 2026-10-14 | Fixes from sonartest: no-data components hidden by default, batched repaints, adopters loaded first. |
 | 0.4.0 | 2026-10-14 | Before/after the agent. |
