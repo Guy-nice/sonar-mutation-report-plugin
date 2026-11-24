@@ -326,6 +326,20 @@ To repeat on any server: scan a project that sets `sonar.mutation.reportPath`, t
 `GET /api/measures/component?component=<key>&metricKeys=mutation_score,new_mutation_score` and
 `GET /api/issues/search?componentKeys=<key>`.
 
+## Version history
+
+Newest first. Each version is a GitHub release with the jar and its `.sha256`. To see which version a
+server runs: Administration > Marketplace > Installed, or `GET /api/plugins/installed` (key `mutationreport`).
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.0.1 | 2026-11-24 | Fix: multi-module Maven/Gradle builds failed with "Can not add the same measure twice". The sensor now runs once per analysis (project sensor). A relative `sonar.mutation.reportPath` resolves against the root project directory. |
+| 1.0.0 | 2026-10-28 | First stable release. Dashboard (overview and project pages), before/after the agent, run duration, scan date, optional portfolio, performance and correctness fixes. |
+| 0.4.1 | 2026-10-14 | Fixes from sonartest: no-data components hidden by default, batched repaints, adopters loaded first. |
+| 0.4.0 | 2026-10-14 | Before/after the agent. |
+| 0.3.0 | 2026-10-05 | Mutation dashboard pages. |
+| 0.2.0 | 2026-10-01 | Full metric set: per-file measures, per-language measures, external issues. |
+
 ## Build
 
 Requires JDK 17+ and Maven 3.9+.
