@@ -172,7 +172,9 @@ Add one property to `sonar-project.properties` (or pass `-Dsonar.mutation.report
 
     sonar.mutation.reportPath=.sonar/mutation-report.json
 
-The path is relative to the project base directory. If the property is absent the sensor is skipped. If
+The path is relative to the root project base directory (not a module directory). The sensor runs once per
+analysis, so multi-module Maven and Gradle builds are supported: report file paths stay relative to the root.
+If the property is absent the sensor is skipped. If
 the file is missing the scan logs a warning and continues. A malformed file fails the scan with a clear
 error.
 
@@ -311,6 +313,12 @@ API: tiles, before/after bars, gate transitions, status bands, last scan and tim
 numbers. It also showed what a server with 2,084 projects needs: no-data components hidden by default, batched
 repaints and adopters loading first (all in 0.4.1; the first load went from over 3 minutes to about 60 s). A
 tie such as 56.25 was +0.1 on a PR the agent had not improved; the agent now rounds ties up too.
+
+Multi-module (1.0.1, local SonarQube 26.1.0.118079, Maven 3.9 with sonar-maven-plugin): a 2-module project with the
+report property set failed with 1.0.0 ("Can not add the same measure twice ... mutation_total") because the
+sensor ran per module. With 1.0.1 the sensor runs once, publishes files and issues of both modules, accepts a
+relative report path, and the quality gate is evaluated. Single-module scans give the same result as before
+(36 metrics on a file, 73.3 score, gate fails below 80).
 
 Still open: the dashboard with real agent runs on sonartest and a second Sonar version.
 
