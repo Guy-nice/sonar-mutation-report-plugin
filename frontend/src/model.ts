@@ -70,8 +70,6 @@ export interface ProjectSummary {
   withData: number;
   /** The most recent PR with mutation data: the component row shows its numbers. */
   scanned: PrResult | null;
-  /** Group of the component (sonar.mutation.portfolio) as seen on that PR. */
-  portfolio: string | null;
   before: number | null;
   after: number | null;
   change: number | null;
@@ -91,7 +89,6 @@ export function summarizeProject(res: ProjectResult, now: Date): ProjectSummary 
     total: prs.length,
     withData: withData.length,
     scanned,
-    portfolio: scanned?.portfolio ?? null,
     before: scanned?.scoreBefore ?? null,
     after: scanned?.score ?? null,
     change: scanned ? change(scanned) : null,
@@ -120,13 +117,12 @@ export function summarizeOverview(results: ProjectResult[], now: Date): Overview
   };
 }
 
-export type SortKey = 'name' | 'portfolio' | 'before' | 'after' | 'change' | 'scan' | 'time';
+export type SortKey = 'name' | 'before' | 'after' | 'change' | 'scan' | 'time';
 export type SortDir = 'asc' | 'desc';
 
 function sortValue(s: ProjectSummary, key: SortKey): number | string | null {
   switch (key) {
     case 'name': return s.name.toLowerCase();
-    case 'portfolio': return s.portfolio === null ? null : s.portfolio.toLowerCase();
     case 'before': return s.before;
     case 'after': return s.after;
     case 'change': return s.change;

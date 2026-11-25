@@ -14,7 +14,6 @@ export function makePr(key: string, over: Partial<PrResult> & { hours?: number; 
     score: 85,
     scoreBefore: null,
     durationSec: null,
-    portfolio: null,
     threshold: 80,
     thresholdAssumed: false,
     measures: { new_mutation_score: 85, new_mutation_total: 40, new_mutation_killed: 34, new_mutation_survived: 4, new_mutation_no_coverage: 2 },

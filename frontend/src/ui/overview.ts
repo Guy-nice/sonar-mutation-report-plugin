@@ -1,4 +1,5 @@
-import { fmtDate, fmtDuration, fmtPct, projectPageUrl, sonarBase } from '../format';
+import { fmtDate, fmtDuration, fmtPct, projectPageUrl } from '../format';
+import { dormantProjects, forgetDormant, knownAdopters, rememberAdopter, rememberDormant } from '../store';
 import {
   adoption, distribution, gateOf, groupByPortfolio, hasBefore, inWindow, isLive, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
   type PortfolioGroup, type ProjectSummary, type SortDir, type SortKey,
@@ -15,29 +16,6 @@ const TITLE = 'Mutation overview';
 const NO_PORTFOLIO = '\u0000none';
 /** Longest wait between repaints while projects stream in. */
 const PAINT_MS = 250;
-const ADOPTERS_KEY = 'mutation-dashboard-adopters:';
-
-/** Keys of the projects that had mutation data on an earlier visit (this browser, this server). Never throws. */
-function knownAdopters(): Set<string> {
-  try {
-    const raw = globalThis.localStorage?.getItem(ADOPTERS_KEY + sonarBase());
-    const list: unknown = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string') : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function rememberAdopter(key: string): void {
-  try {
-    const known = knownAdopters();
-    if (known.has(key)) return;
-    known.add(key);
-    globalThis.localStorage?.setItem(ADOPTERS_KEY + sonarBase(), JSON.stringify([...known]));
-  } catch {
-    // storage full or disabled: the order of loading is only an optimization
-  }
-}
 
 /** `num` columns are right-aligned. Gate and Status have no sort key: they are derived from the scores. */
 const COLUMNS: Array<{ key: SortKey | null; label: string; num?: boolean }> = [
@@ -59,6 +37,8 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   let portfolioDefs: PortfolioRef[] = [];
   /** When the last load finished: shown on the ready mark. */
   let readyAt: Date | null = null;
+  /** Components not checked this time: no pull request in the window when last checked, less than a day ago. */
+  let skipped = 0;
   /** Weakest components first: that is where a manager looks. */
   let sortKey: SortKey = 'after';
   let sortDir: SortDir = 'asc';
@@ -155,7 +135,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       h('span', { class: 'md-tickmark', 'aria-hidden': 'true' }, '✓'),
       h('div', { class: 'md-status-main' },
         h('b', {}, 'Data ready'),
-        h('span', { class: 'md-muted' }, ` ${projects.length} components checked${readyAt ? ` at ${readyAt.toTimeString().slice(0, 5)}` : ''}. `),
+        h('span', { class: 'md-muted' }, ` ${projects.length - skipped} components checked${readyAt ? ` at ${readyAt.toTimeString().slice(0, 5)}` : ''}${skipped > 0 ? `, ${skipped} skipped (no pull request in 30 days when last checked; Refresh checks all)` : ''}. `),
         h('button', { class: 'md-link', 'data-action': 'refresh-status', onclick: () => void reload() }, 'Refresh')));
   }
 
@@ -171,7 +151,9 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const o = summarizeOverview(list, now());
     const windowPrs = list.filter((r) => !r.error).flatMap((r) => r.prs.filter((p) => inWindow(p, now())));
     const all = list.map((r) => summarizeProject(r, now()));
-    const portfolios = groupByPortfolio(all.filter(isLive), portfolioDefs).map((g) => g.portfolio).filter((p): p is string => p !== null);
+    const liveGroups = groupByPortfolio(all.filter(isLive), portfolioDefs);
+    const portfolios = liveGroups.map((g) => g.portfolio).filter((p): p is string => p !== null);
+    const hasNoPortfolio = liveGroups.some((g) => g.portfolio === null);
     let summaries = all;
     // Only live components: a PR with mutation data in the window. The rest is counted, not listed.
     const dormant = all.filter((s) => !isLive(s) && s.error === null).length;
@@ -195,7 +177,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       const key = c.key;
       return h('th', { class: `sortable ${num}${sortKey === key ? sortDir : ''}`, 'data-sort': key, onclick: () => {
         if (sortKey === key) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
-        else { sortKey = key; sortDir = key === 'name' || key === 'portfolio' ? 'asc' : 'desc'; }
+        else { sortKey = key; sortDir = key === 'name' ? 'asc' : 'desc'; }
         paint();
       } }, c.label);
     }));
@@ -206,7 +188,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const totals = summaryRow('All live components', live, 'md-sum', { 'data-row': 'total' });
     clear(body);
     body.append(
-      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${portfolios.length + (groupByPortfolio(all.filter(isLive), portfolioDefs).some((g) => g.portfolio === null) ? 1 : 0)} ${'portfolios'}`),
+      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${liveGroups.length} ${liveGroups.length === 1 ? 'portfolio' : 'portfolios'}`),
       statusBar(),
       adoptionCard(adoption(all, portfolioDefs), loading),
       summaryTiles(windowPrs, now()),
@@ -220,9 +202,8 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
             h('select', { 'data-filter': 'portfolio', onchange: (e: Event) => { portfolio = (e.target as HTMLSelectElement).value; paint(); } },
               h('option', { value: '', ...(portfolio === '' ? { selected: 'selected' } : {}) }, 'All'),
               ...portfolios.map((p) => h('option', { value: p, ...(portfolio === p ? { selected: 'selected' } : {}) }, p)),
-              h('option', { value: NO_PORTFOLIO, ...(portfolio === NO_PORTFOLIO ? { selected: 'selected' } : {}) }, 'No portfolio'))),
-          h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh'),
-          loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} components...`) : null),
+              hasNoPortfolio ? h('option', { value: NO_PORTFOLIO, ...(portfolio === NO_PORTFOLIO ? { selected: 'selected' } : {}) }, 'No portfolio') : null)),
+          h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh')),
         projects.length === 0 && !loading
           ? h('p', { class: 'md-muted' }, 'No components found.')
           : summaries.length === 0 && !loading
@@ -245,8 +226,9 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
 
   async function load(clearFirst: boolean): Promise<void> {
     const id = ++loadId;
-    if (clearFirst) data.clearCache();
+    if (clearFirst) { data.clearCache(); forgetDormant(); }
     results.clear();
+    skipped = 0;
     loading = true;
     readyAt = null;
     paint();
@@ -265,14 +247,23 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       return;
     }
     paint();
+    const dormant = dormantProjects(now().getTime());
+    const found: string[] = [];
     await Promise.all(projects.map(async (p) => {
+      if (dormant.has(p.key)) {
+        skipped++;
+        results.set(p.key, { project: p, prs: [], error: null });
+        return;
+      }
       const res = await data.loadProject(p);
       if (id !== loadId) return;
       results.set(p.key, res);
       if (res.prs.some((r) => r.hasData)) rememberAdopter(p.key);
+      if (res.error === null && !res.prs.some((r) => inWindow(r, now()))) found.push(p.key);
       schedulePaint();
     }));
     if (id !== loadId) return;
+    rememberDormant(found, now().getTime());
     loading = false;
     readyAt = now();
     paint();

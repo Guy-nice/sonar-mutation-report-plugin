@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderOverview } from '../src/ui/overview';
 import { FakeData, NOW, improved, makePr, noData, project } from './fixtures';
 
-const flush = () => vi.waitFor(() => expect(root.querySelector('[data-loading="true"]')).toBeNull());
+const flush = () => vi.waitFor(() => expect(root.querySelector('[data-status="ready"]')).not.toBeNull());
 let root: HTMLElement;
 const mount = (data: FakeData) => renderOverview(root, data, () => NOW);
 const rows = () => [...root.querySelectorAll('tbody tr[data-project]')].map((r) => r.getAttribute('data-project'));
@@ -11,19 +11,30 @@ const tile = (name: string) => root.querySelector(`[data-tile="${name}"] .v`)?.t
 const tileSub = (name: string) => root.querySelector(`[data-tile="${name}"] .s`)?.textContent ?? '';
 const total = (i: number) => root.querySelector('tr[data-row="total"]')?.children[i]?.textContent ?? '';
 
-const showAll = () => root.querySelector<HTMLInputElement>('[data-filter="withData"]')!.click();
-
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '<div id="r"></div>';
   root = document.getElementById('r')!;
 });
 
-const sample = () => new FakeData([
-  project('timeoff', [improved('1', 40, 60, 600, { portfolio: 'Routing' }), improved('2', 50, 70, 300, { hours: 30 }), noData('4')]),
-  project('policy', [improved('5', 78, 95, 120, { hours: 5, portfolio: 'Platform' })]),
-  project('billing', [noData('6'), noData('7')]),
-]);
+/** Portfolios are Sonar Portfolios: billing is in Platform although it has no mutation data. */
+const sample = () => {
+  const data = new FakeData([
+    project('timeoff', [improved('1', 40, 60, 600), improved('2', 50, 70, 300, { hours: 30 }), noData('4')]),
+    project('policy', [improved('5', 78, 95, 120, { hours: 5 })]),
+    project('billing', [noData('6'), noData('7')]),
+  ]);
+  data.portfolios = [
+    { key: 'r', name: 'Routing', projectKeys: ['timeoff'] },
+    { key: 'p', name: 'Platform', projectKeys: ['policy', 'billing'] },
+  ];
+  return data;
+};
+/** Everything in one portfolio, so row order shows the sort and not the grouping. */
+const oneTeam = (data: FakeData) => {
+  data.portfolios = [{ key: 't', name: 'Team', projectKeys: data.projects.map((p) => p.project.key) }];
+  return data;
+};
 
 describe('a big server', () => {
   it('repaints in batches, not once per project, and ends with every project loaded', async () => {
@@ -60,7 +71,7 @@ describe('a big server', () => {
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
     mount(sample());
     await flush();
-    expect(rows()).toEqual(['timeoff', 'policy']);
+    expect(rows()).toEqual(['policy', 'timeoff']);
     spy.mockRestore();
   });
 });
@@ -83,8 +94,7 @@ describe('overview honesty and robustness', () => {
   it('a server without pull request analysis gets one clear message, not one error per project', async () => {
     const e = 'HTTP 404 /api/project_pull_requests/list';
     mount(new FakeData([project('a', [], e), project('b', [], e)]));
-    await flush();
-    expect(root.textContent).toContain('no pull request analysis');
+    await vi.waitFor(() => expect(root.textContent).toContain('no pull request analysis'));
     expect(root.querySelectorAll('tr[data-project]')).toHaveLength(0);
   });
 
@@ -93,23 +103,28 @@ describe('overview honesty and robustness', () => {
     const gate = new Promise<void>((r) => { release = r; });
     class Slow extends FakeData {
       first = true;
+      started = false;
       async loadProject(p: { key: string; name: string }) {
         if (this.first) {
           this.first = false;
+          this.started = true;
           await gate;
           return project('a', [makePr('1', { score: 10 })]);
         }
         return project('a', [makePr('2', { score: 95 })]);
       }
     }
-    const handle = renderOverview(root, new Slow([project('a', [])]), () => NOW);
-    await vi.waitFor(() => expect(root.textContent).toContain('Loading'));
+    const slow = new Slow([project('a', [])]);
+    const handle = renderOverview(root, slow, () => NOW);
+    // the first load must be waiting on its project before the refresh starts
+    await vi.waitFor(() => expect(slow.started).toBe(true));
+    expect(root.querySelector('[data-status="loading"]')).not.toBeNull();
     const second = handle.reload();
     await second;
     release();
     await new Promise((r) => setTimeout(r, 20));
     expect(cell('a', 'after')).toBe('95.0%');
-    expect(root.querySelector('[data-loading="true"]')).toBeNull();
+    expect(root.querySelector('[data-status="loading"]')).toBeNull();
   });
 });
 
@@ -125,7 +140,7 @@ describe('overview', () => {
     expect(tileSub('passRate')).toBe('1 / 3 PRs (was 0 / 3)');
     expect(tile('duration')).toBe('17m');
     expect(tileSub('duration')).toBe('average 5m per PR (3 PRs)');
-    expect(root.querySelector('.md-sub')?.textContent).toContain('2 of 3 components use mutation');
+    expect(root.querySelector('.md-sub')?.textContent).toContain('2 live components in 2 portfolios');
   });
 
   it('there is no median anywhere', async () => {
@@ -144,34 +159,61 @@ describe('overview', () => {
     expect(tileSub('passRate')).toBe('1 / 1 PRs');
   });
 
-  it('default order is weakest After first; components without data last once shown', async () => {
+  it('lists live components only, grouped by Sonar Portfolio A-Z, weakest After first inside a group', async () => {
     mount(sample());
     await flush();
-    expect(rows()).toEqual(['timeoff', 'policy']);
-    showAll();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
+    expect(rows()).toEqual(['policy', 'timeoff']);
+    expect([...root.querySelectorAll('tr[data-portfolio]')].map((r) => r.getAttribute('data-portfolio'))).toEqual(['Platform', 'Routing']);
+    mount(oneTeam(new FakeData([project('a', [improved('1', 50, 90, 60)]), project('b', [improved('2', 30, 50, 60)])])));
+    await flush();
+    expect(rows()).toEqual(['b', 'a']);
   });
 
-  it('components without data are hidden by default, with their count; unchecking shows the adoption gap', async () => {
+  it('components without a recent mutation run are not listed, only counted', async () => {
     mount(sample());
     await flush();
-    expect(rows()).toEqual(['timeoff', 'policy']);
-    expect(root.querySelector('.md-filters label')?.textContent).toContain('(1 without data hidden)');
-    showAll();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
-    expect(root.querySelector('.md-filters label')?.textContent).not.toContain('hidden');
+    expect(rows()).not.toContain('billing');
+    expect(root.querySelector('.md-filters')?.textContent).toContain('1 without a recent mutation run hidden');
+    expect(root.querySelector('.md-filters input[type="checkbox"]')).toBeNull();
   });
 
   it('nobody adopted: says so instead of an empty table', async () => {
     mount(new FakeData([project('billing', [noData('6')])]));
     await flush();
-    expect(root.textContent).toContain('No components with mutation data');
+    expect(root.textContent).toContain('No live components');
   });
 
-  it('a component row: portfolio, before, after, change, gate, scan date, time', async () => {
+  it('a component in several portfolios is listed under each; one in none goes to No portfolio, last', async () => {
+    const data = new FakeData([project('a', [improved('1', 50, 90, 60)]), project('b', [improved('2', 30, 50, 60)]), project('loner', [improved('3', 40, 60, 60)])]);
+    data.portfolios = [{ key: 'x', name: 'X', projectKeys: ['a', 'b'] }, { key: 'y', name: 'Y', projectKeys: ['a'] }];
+    mount(data);
+    await flush();
+    expect([...root.querySelectorAll('tr[data-portfolio], tbody tr[data-project]')].map((r) => r.getAttribute('data-portfolio') ?? r.getAttribute('data-project')))
+      .toEqual(['X', 'b', 'a', 'Y', 'a', '\u0000none', 'loner']);
+    expect(root.querySelector('tr[data-portfolio="X"]')?.textContent).toContain('2 components');
+  });
+
+  it('clicking a portfolio row collapses and expands its components', async () => {
     mount(sample());
     await flush();
-    expect(cell('timeoff', 'portfolio')).toBe('Routing');
+    root.querySelector<HTMLElement>('tr[data-portfolio="Platform"]')!.click();
+    expect(rows()).toEqual(['timeoff']);
+    root.querySelector<HTMLElement>('tr[data-portfolio="Platform"]')!.click();
+    expect(rows()).toEqual(['policy', 'timeoff']);
+  });
+
+  it('a portfolio row averages its components that report both scores', async () => {
+    const data = new FakeData([project('a', [improved('1', 40, 60, 60)]), project('b', [improved('2', 60, 90, 60)])]);
+    data.portfolios = [{ key: 't', name: 'Team', projectKeys: ['a', 'b'] }];
+    mount(data);
+    await flush();
+    const cells = [...(root.querySelector('tr[data-portfolio="Team"]')?.children ?? [])].map((c) => c.textContent);
+    expect(cells.slice(1, 4)).toEqual(['50.0%', '75.0%', '▲ +25.0']);
+  });
+
+  it('a component row: before, after, change, gate, scan date, time', async () => {
+    mount(sample());
+    await flush();
     expect(cell('timeoff', 'before')).toBe('40.0%');
     expect(cell('timeoff', 'after')).toBe('60.0%');
     expect(cell('timeoff', 'change')).toBe('▲ +20.0');
@@ -189,38 +231,34 @@ describe('overview', () => {
     expect(root.querySelector('[data-col="change"] .md-dn')).not.toBeNull();
   });
 
-  it('shows dashes, not zeros, for components without data', async () => {
-    mount(sample());
+  it('a live component from an older agent shows dashes, not zeros, for what it does not report', async () => {
+    mount(new FakeData([project('old', [makePr('1', { score: 90 })])]));
     await flush();
-    showAll();
-    for (const col of ['before', 'after', 'change', 'time']) expect(cell('billing', col)).toBe('-');
-    expect(cell('billing', 'gate')).toBe('-→-');
-    expect(cell('billing', 'scan')).toBe('never scanned');
-    expect(cell('billing', 'portfolio')).toBe('-');
+    for (const col of ['before', 'change', 'time']) expect(cell('old', col)).toBe('-');
+    expect(cell('old', 'after')).toBe('90.0%');
+    expect(cell('old', 'gate')).toBe('-→Pass');
   });
 
   it('the last row averages the components that report both scores', async () => {
     mount(sample());
     await flush();
-    expect(total(0)).toBe('All components');
-    expect(total(2)).toBe('59.0%');
-    expect(total(3)).toBe('77.5%');
-    expect(total(4)).toBe('▲ +18.5');
-    expect(total(5)).toBe('0 pass→1 pass');
-    expect(total(8)).toBe('12m');
+    expect(total(0)).toBe('All live components');
+    expect(total(1)).toBe('59.0%');
+    expect(total(2)).toBe('77.5%');
+    expect(total(3)).toBe('▲ +18.5');
+    expect(total(4)).toBe('0 pass→1 pass');
+    expect(total(7)).toBe('12m');
   });
 
-  it('no total row when no component reports a first score', async () => {
+  it('with no first score anywhere, the total row shows the After average and dashes', async () => {
     mount(new FakeData([project('p', [makePr('1', { score: 90 })])]));
     await flush();
-    expect(root.querySelector('tr[data-row="total"]')).toBeNull();
+    expect([1, 2, 3].map(total)).toEqual(['-', '90.0%', '-']);
   });
 
-  it('status shows the score band of the After score; components without data have no band', async () => {
+  it('status shows the score band of the After score', async () => {
     mount(sample());
     await flush();
-    showAll();
-    expect(cell('billing', 'status')).toBe('No data');
     expect(root.querySelector('tr[data-project="timeoff"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('needs');
     expect(root.querySelector('tr[data-project="policy"] [data-col="status"] [data-band]')?.getAttribute('data-band')).toBe('excellent');
   });
@@ -228,64 +266,71 @@ describe('overview', () => {
   it('dashboard cards: before/after bars best first, mutant distribution and legend', async () => {
     mount(sample());
     await flush();
-    expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['policy', 'timeoff']);
-    expect(root.querySelector('[data-card="scores"] h2')?.textContent).toBe('Before → After Agent, by Component');
-    expect(root.querySelector('[data-card="scores"] [data-bar="policy"] .p')?.textContent).toBe('78% → 95%');
+    expect([...root.querySelectorAll('[data-card="scores"] [data-bar]')].map((b) => b.getAttribute('data-bar'))).toEqual(['Platform', 'Routing']);
+    expect(root.querySelector('[data-card="scores"] h2')?.textContent).toBe('Before → After Agent, by Portfolio');
+    expect(root.querySelector('[data-card="scores"] [data-bar="Platform"] .p')?.textContent).toBe('78% → 95%');
     expect(root.querySelector('[data-card="distribution"] [data-part="killed"]')?.textContent).toBe('102');
     expect(root.querySelector('[data-card="distribution"] [data-part="alive"]')?.textContent).toBe('18');
     expect(root.querySelector('.md-legend')?.textContent).toContain('Needs Work (<75%)');
-    expect(root.querySelector('.md-sub')?.textContent).toBe('Mutation Score Dashboard • Last updated: 2026-10-05 • 2 of 3 components use mutation');
+    expect(root.querySelector('.md-sub')?.textContent).toBe('Mutation Score Dashboard • Last updated: 2026-10-05 • 2 live components in 2 portfolios');
   });
 
-  it('a bar without a first score shows a dash for before', async () => {
+  it('a portfolio with no first score anywhere has no bar', async () => {
     mount(new FakeData([project('p', [makePr('1', { score: 90 })])]));
     await flush();
-    expect(root.querySelector('[data-bar="p"] .p')?.textContent).toBe('- → 90%');
+    expect(root.querySelector('[data-card="scores"] [data-bar]')).toBeNull();
+    expect(root.querySelector('[data-card="scores"]')?.textContent).toContain('No portfolio has a score yet.');
   });
 
   it('clicking a sort header re-sorts and toggles direction', async () => {
-    mount(sample());
+    mount(oneTeam(sample()));
     await flush();
-    showAll();
     const th = root.querySelector<HTMLElement>('th[data-sort="name"]')!;
     th.click();
-    expect(rows()).toEqual(['billing', 'policy', 'timeoff']);
+    expect(rows()).toEqual(['policy', 'timeoff']);
     th.click();
-    expect(rows()).toEqual(['timeoff', 'policy', 'billing']);
+    expect(rows()).toEqual(['timeoff', 'policy']);
   });
 
   it('every data column sorts; gate and status do not', async () => {
-    mount(sample());
+    mount(oneTeam(sample()));
     await flush();
     expect([...root.querySelectorAll('th[data-sort]')].map((t) => t.getAttribute('data-sort')))
-      .toEqual(['name', 'portfolio', 'before', 'after', 'change', 'scan', 'time']);
+      .toEqual(['name', 'before', 'after', 'change', 'scan', 'time']);
     root.querySelector<HTMLElement>('th[data-sort="change"]')!.click();
     expect(rows()).toEqual(['timeoff', 'policy']);
     root.querySelector<HTMLElement>('th[data-sort="before"]')!.click();
     expect(rows()).toEqual(['policy', 'timeoff']);
   });
 
-  it('the portfolio filter appears when a portfolio exists and narrows the rows', async () => {
+  it('the portfolio filter lists the portfolios with live components and narrows the rows', async () => {
     mount(sample());
     await flush();
     const sel = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
-    expect([...sel.options].map((o) => o.textContent)).toEqual(['All', 'Platform', 'Routing', 'No portfolio']);
+    expect([...sel.options].map((o) => o.textContent)).toEqual(['All', 'Platform', 'Routing']);
     sel.value = 'Platform';
     sel.dispatchEvent(new Event('change'));
     expect(rows()).toEqual(['policy']);
-    const again = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
-    expect(again.value).toBe('Platform');
-    showAll();
-    const third = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
-    third.value = '\u0000none';
-    third.dispatchEvent(new Event('change'));
-    expect(rows()).toEqual(['billing']);
+    expect(root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!.value).toBe('Platform');
   });
 
-  it('no portfolio filter when no component has one', async () => {
+  it('No portfolio is a filter choice only when a live component is in none', async () => {
+    const data = sample();
+    data.projects.push(project('loner', [improved('9', 40, 60, 60)]));
+    mount(data);
+    await flush();
+    const sel = root.querySelector<HTMLSelectElement>('select[data-filter="portfolio"]')!;
+    expect([...sel.options].map((o) => o.textContent)).toEqual(['All', 'Platform', 'Routing', 'No portfolio']);
+    sel.value = '\u0000none';
+    sel.dispatchEvent(new Event('change'));
+    expect(rows()).toEqual(['loner']);
+  });
+
+  it('a server without Portfolios: no filter, every live component under No portfolio', async () => {
     mount(new FakeData([project('p', [makePr('1')])]));
     await flush();
     expect(root.querySelector('select[data-filter="portfolio"]')).toBeNull();
+    expect(root.querySelector('tr[data-portfolio]')?.textContent).toContain('No portfolio');
   });
 
   it('a component that fails shows unavailable with retry; the rest still render', async () => {
@@ -300,11 +345,11 @@ describe('overview', () => {
     await vi.waitFor(() => expect(cell('secret', 'after')).toBe('99.0%'));
   });
 
-  it('a component with PRs only outside the window shows no PRs in the last 30 days', async () => {
+  it('a component with PRs only outside the window is not live and not listed', async () => {
     mount(new FakeData([project('old', [makePr('1', { hours: 24 * 60 })])]));
     await flush();
-    showAll();
-    expect(cell('old', 'scan')).toContain('no PRs in the last 30 days');
+    expect(rows()).toEqual([]);
+    expect(root.textContent).toContain('No live components');
   });
 
   it('refresh clears the cache and reloads', async () => {
@@ -328,5 +373,120 @@ describe('overview', () => {
     await flush();
     const a = root.querySelector<HTMLAnchorElement>('tr[data-project="timeoff"] a')!;
     expect(a.getAttribute('href')).toContain('/project/extension/mutationreport/project?id=timeoff');
+  });
+});
+
+describe('adoption summary', () => {
+  const card = () => root.querySelector('[data-card="adoption"]')!;
+  const row = (name: string) => card().querySelector(`[data-portfolio-adoption="${name}"]`)?.textContent ?? '';
+
+  it('counts active components (a PR in the window) that use mutation, overall and per Sonar Portfolio', async () => {
+    mount(sample());
+    await flush();
+    expect(card().querySelector('.md-adopt-big')?.textContent).toBe('67%');
+    expect(card().querySelector('.md-adopt-cap')?.textContent).toBe('2 of 3 active components use mutation testing');
+    expect(row('Platform')).toContain('1 of 2 (50%)');
+    expect(row('Routing')).toContain('1 of 1 (100%)');
+  });
+
+  it('a component with no PR in the window is not active: not in the 100%', async () => {
+    const data = sample();
+    data.projects.push(project('dead', [makePr('1', { hours: 24 * 60, hasData: false, score: null })]));
+    mount(data);
+    await flush();
+    expect(card().querySelector('.md-adopt-cap')?.textContent).toBe('2 of 3 active components use mutation testing');
+  });
+
+  it('a component in several portfolios counts in each, once overall', async () => {
+    const data = new FakeData([project('a', [improved('1', 50, 90, 60)]), project('b', [noData('2')])]);
+    data.portfolios = [{ key: 'x', name: 'X', projectKeys: ['a', 'b'] }, { key: 'y', name: 'Y', projectKeys: ['a'] }];
+    mount(data);
+    await flush();
+    expect(card().querySelector('.md-adopt-cap')?.textContent).toBe('1 of 2 active components use mutation testing');
+    expect(row('X')).toContain('1 of 2 (50%)');
+    expect(row('Y')).toContain('1 of 1 (100%)');
+  });
+
+  it('no active component: a dash, not 0%', async () => {
+    mount(new FakeData([]));
+    await flush();
+    expect(card().querySelector('.md-adopt-big')?.textContent).toBe('-');
+  });
+});
+
+describe('loading and ready', () => {
+  it('shows progress and a partial mark while loading, then a ready mark with the time', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    class Slow extends FakeData {
+      async loadProject(p: { key: string; name: string }) {
+        if (p.key === 'slow') await gate;
+        return super.loadProject(p);
+      }
+    }
+    const data = new Slow([project('fast', [improved('1', 50, 70, 60)]), project('slow', [improved('2', 40, 60, 60)])]);
+    mount(data);
+    await vi.waitFor(() => expect(root.querySelector('[data-status="loading"]')?.textContent).toContain('Loading data: 1 of 2 components (50%)'));
+    expect(root.querySelector('[data-card="adoption"] .md-partial')).not.toBeNull();
+    expect(root.querySelector('[data-status="ready"]')).toBeNull();
+    release();
+    await flush();
+    expect(root.querySelector('[data-status="loading"]')).toBeNull();
+    expect(root.querySelector('[data-status="ready"]')?.textContent).toContain('Data ready');
+    expect(root.querySelector('[data-status="ready"]')?.textContent).toContain('2 components checked at');
+    expect(root.querySelector('[data-card="adoption"] .md-partial')).toBeNull();
+  });
+
+  it('the ready mark has a Refresh that loads again', async () => {
+    const data = sample();
+    mount(data);
+    await flush();
+    root.querySelector<HTMLButtonElement>('[data-action="refresh-status"]')!.click();
+    await flush();
+    expect(data.calls.filter((c) => c === 'listProjects')).toHaveLength(2);
+  });
+});
+
+describe('inactive components are not checked again for a day', () => {
+  const loaded: string[] = [];
+  class Spy extends FakeData {
+    async loadProject(p: { key: string; name: string }) { loaded.push(p.key); return super.loadProject(p); }
+  }
+  const data = () => new Spy([project('live', [improved('1', 50, 70, 60)]), project('idle', [makePr('9', { hours: 24 * 45 })])]);
+  const remount = () => { document.body.innerHTML = '<div id="r"></div>'; root = document.getElementById('r')!; };
+
+  it('a component with no PR in the window is skipped on the next visit, and the ready mark says so', async () => {
+    loaded.length = 0;
+    mount(data());
+    await flush();
+    expect(loaded.sort()).toEqual(['idle', 'live']);
+    loaded.length = 0;
+    remount();
+    mount(data());
+    await flush();
+    expect(loaded).toEqual(['live']);
+    expect(root.querySelector('[data-status="ready"]')?.textContent).toContain('1 skipped');
+  });
+
+  it('Refresh checks every component again', async () => {
+    mount(data());
+    await flush();
+    remount();
+    mount(data());
+    await flush();
+    loaded.length = 0;
+    root.querySelector<HTMLButtonElement>('[data-action="refresh-status"]')!.click();
+    await flush();
+    expect(loaded.sort()).toEqual(['idle', 'live']);
+  });
+
+  it('a component checked more than a day ago is checked again', async () => {
+    mount(data());
+    await flush();
+    remount();
+    loaded.length = 0;
+    renderOverview(root, data(), () => new Date(NOW.getTime() + 25 * 3_600_000));
+    await vi.waitFor(() => expect(root.querySelector('[data-status="ready"]')).not.toBeNull());
+    expect(loaded.sort()).toEqual(['idle', 'live']);
   });
 });

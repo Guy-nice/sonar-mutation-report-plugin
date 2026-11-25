@@ -13,9 +13,8 @@ export const SURVIVOR_RULES = 'external_mutation-report:survived,external_mutati
 export const PR_METRICS = [
   'new_mutation_score', 'mutation_threshold', 'new_mutation_total', 'new_mutation_killed', 'new_mutation_survived',
   'new_mutation_no_coverage', 'new_mutation_timed_out', 'new_mutation_memory_error', 'new_mutation_unknown',
-  'new_mutation_test_strength', 'new_mutation_score_before', 'mutation_run_duration', 'mutation_portfolio',
+  'new_mutation_test_strength', 'new_mutation_score_before', 'mutation_run_duration'
 ];
-export const PORTFOLIO_METRIC = 'mutation_portfolio';
 const FILE_METRICS = ['new_mutation_score', 'new_mutation_alive', 'new_mutation_lines', 'mutation_score', 'new_mutation_total'];
 const MUTATION_DOMAIN = 'Mutation Analysis';
 
@@ -110,9 +109,48 @@ export class SonarApi implements DataSource {
     return items.map((c) => ({ key: c.key, name: c.name }));
   }
 
-  /** TODO(probe): the endpoint differs by Sonar version; run scripts/probe-portfolios.sh on sonartest first. Empty until then. */
+  /**
+   * Sonar Portfolios (Enterprise Edition and higher) with every project they contain, sub-portfolios included.
+   * Which web API call answers differs by Sonar version, so each step tries the known calls in turn. A server without
+   * Portfolios, or a user who may not see them, gives []. Never rejects: the overview then lists every component under
+   * "No portfolio".
+   */
   async listPortfolios(): Promise<PortfolioRef[]> {
-    return [];
+    try {
+      const portfolios = await this.firstThatWorks<Array<{ key: string; name: string }>>([
+        async () => (await this.get<{ views?: Array<{ key: string; name: string; qualifier?: string }> }>('/api/views/list', {}))
+          .views?.filter((v) => (v.qualifier ?? 'VW') === 'VW').map((v) => ({ key: v.key, name: v.name })) ?? [],
+        () => this.all<{ key: string; name: string }, { components?: Array<{ key: string; name: string }> }>(
+          '/api/components/search', { qualifiers: 'VW' }, (r) => r.components ?? []),
+      ]);
+      return await Promise.all(portfolios.map(async (p) => ({ key: p.key, name: p.name, projectKeys: await this.portfolioProjects(p.key) })));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Keys of the projects in a portfolio. A portfolio lists a project as a reference: `refKey` is the project's own key. */
+  private async portfolioProjects(portfolioKey: string): Promise<string[]> {
+    type Comp = { key: string; refKey?: string };
+    const comps = await this.firstThatWorks<Comp[]>([
+      () => this.all<Comp, { components?: Comp[] }>('/api/components/tree', { component: portfolioKey, qualifiers: 'TRK', strategy: 'all' }, (r) => r.components ?? []),
+      () => this.all<Comp, { components?: Comp[] }>('/api/measures/component_tree',
+        { component: portfolioKey, qualifiers: 'TRK', strategy: 'all', metricKeys: 'ncloc' }, (r) => r.components ?? []),
+    ]);
+    return [...new Set(comps.map((c) => c.refKey ?? c.key))];
+  }
+
+  /** Runs the attempts in order and returns the first result; throws the last error when all fail. */
+  private async firstThatWorks<T>(attempts: Array<() => Promise<T>>): Promise<T> {
+    let last: unknown = new Error('no attempt');
+    for (const attempt of attempts) {
+      try {
+        return await attempt();
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last;
   }
 
   private async pullRequests(projectKey: string): Promise<PullRequestRef[]> {
@@ -144,12 +182,11 @@ export class SonarApi implements DataSource {
       if (!(e instanceof HttpError && e.status === 404)) throw e; // no analysis data for this PR: treat as no data
     }
     const measures = toMeasureMap(raw);
-    const portfolio = raw.find((m) => m.metric === PORTFOLIO_METRIC)?.value?.trim() || null;
     const score = measures.new_mutation_score ?? null;
     const hasData = Object.keys(measures).some((k) => k.includes('mutation'));
     const hasThreshold = measures.mutation_threshold !== undefined;
     return {
-      pr, hasData, score, measures, portfolio,
+      pr, hasData, score, measures,
       scoreBefore: measures.new_mutation_score_before ?? null,
       durationSec: measures.mutation_run_duration ?? null,
       threshold: hasThreshold ? measures.mutation_threshold : DEFAULT_THRESHOLD,

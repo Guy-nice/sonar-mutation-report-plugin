@@ -12,40 +12,37 @@ const s = (path: string, line: number, status: 'SURVIVED' | 'NO_COVERAGE', opera
  * A PR the agent improved from `before` to `after` in `minutes`. Mutant counts follow the final score: `total` mutants,
  * the alive ones split 60/40 into survived and no coverage.
  */
-const mk = (key: string, before: number, after: number, minutes: number, hours: number, title: string, portfolio: string | null, total = 80) => {
+const mk = (key: string, before: number, after: number, minutes: number, hours: number, title: string, total = 80) => {
   const killed = Math.round((total * after) / 100);
   const alive = Math.max(0, total - killed - 2);
   const survived = Math.round(alive * 0.6);
-  return improved(key, before, after, minutes * 60, { hours, title, portfolio, measures: {
+  return improved(key, before, after, minutes * 60, { hours, title, measures: {
     new_mutation_score: after, new_mutation_total: total, new_mutation_killed: killed, new_mutation_survived: survived,
     new_mutation_no_coverage: alive - survived, new_mutation_timed_out: 1, new_mutation_memory_error: 0, new_mutation_unknown: 1,
     new_mutation_test_strength: Math.round((killed / Math.max(1, killed + survived)) * 1000) / 10 } });
 };
 const d = 24;
-const PS = 'Platform Services';
-const RT = 'Routing';
-const BL = 'Billing';
 
-const pr212 = mk('212', 58, 67, 22, 3, 'token refresh retry', RT, 127);
+const pr212 = mk('212', 58, 67, 22, 3, 'token refresh retry', 127);
 
 const data = new FakeData(
   [
-    project('auth-service', [mk('301', 78, 84, 14, 30, 'session expiry', PS, 140)]),
-    project('queue-manager', [pr212, mk('209', 61, 83, 17, 2 * d, 'queue priority lanes', RT, 100), mk('205', 44, 71, 29, 6 * d, 'dead-letter handling', RT, 90), mk('198', 70, 88, 12, 11 * d, 'visibility timeout fix', RT, 70), mk('194', 36, 52, 33, 16 * d, 'metrics exporter', RT, 120)]),
-    project('api-gateway', [mk('88', 38, 52, 31, 28, 'rate limiter', PS, 160), mk('85', 41, 49, 26, 9 * d, 'route table', PS, 90)]),
-    project('router-core', [mk('51', 30, 44, 38, 2 * d, 'matcher rewrite', RT, 150)]),
-    project('storage-service', [mk('77', 55, 71, 19, 3 * d, 'blob lifecycle', PS, 110)]),
+    project('auth-service', [mk('301', 78, 84, 14, 30, 'session expiry', 140)]),
+    project('queue-manager', [pr212, mk('209', 61, 83, 17, 2 * d, 'queue priority lanes', 100), mk('205', 44, 71, 29, 6 * d, 'dead-letter handling', 90), mk('198', 70, 88, 12, 11 * d, 'visibility timeout fix', 70), mk('194', 36, 52, 33, 16 * d, 'metrics exporter', 120)]),
+    project('api-gateway', [mk('88', 38, 52, 31, 28, 'rate limiter', 160), mk('85', 41, 49, 26, 9 * d, 'route table', 90)]),
+    project('router-core', [mk('51', 30, 44, 38, 2 * d, 'matcher rewrite', 150)]),
+    project('storage-service', [mk('77', 55, 71, 19, 3 * d, 'blob lifecycle', 110)]),
     project('rules-engine', [noData('12', 40)]),
     project('reporting-ui', [noData('31', 20)]),
     project('email-gateway', [noData('18', 3 * d)]),
     project('audit-log', [noData('4', 9 * d)]),
-    project('invoice-service', [mk('64', 49, 81, 24, 4, 'tax rounding', BL, 120), mk('61', 52, 77, 21, 5 * d, 'credit notes', BL, 95)]),
-    project('payments-core', [mk('140', 63, 90, 18, 6, 'refund flow', BL, 130)]),
-    project('ledger-sync', [mk('33', 40, 58, 35, 12 * d, 'batch import', BL, 105)]),
-    project('notification-hub', [mk('90', 72, 86, 15, 26, 'retry policy', PS, 100)]),
+    project('invoice-service', [mk('64', 49, 81, 24, 4, 'tax rounding', 120), mk('61', 52, 77, 21, 5 * d, 'credit notes', 95)]),
+    project('payments-core', [mk('140', 63, 90, 18, 6, 'refund flow', 130)]),
+    project('ledger-sync', [mk('33', 40, 58, 35, 12 * d, 'batch import', 105)]),
+    project('notification-hub', [mk('90', 72, 86, 15, 26, 'retry policy', 100)]),
     // inactive: no pull request in the last 30 days (not shown on the overview)
-    project('old-billing-batch', [mk('9', 50, 70, 20, 41 * d, 'legacy job', BL, 80)]),
-    project('archive-tool', [mk('3', 45, 60, 20, 63 * d, 'cleanup', null, 80)]),
+    project('old-billing-batch', [mk('9', 50, 70, 20, 41 * d, 'legacy job', 80)]),
+    project('archive-tool', [mk('3', 45, 60, 20, 63 * d, 'cleanup', 80)]),
     project('sandbox-playground', [noData('2', 50 * d)]),
     // an older agent: no first score, no run time, no portfolio
     project('legacy-reports', [makePr('7', { score: 91, hours: 5 * d, title: 'export fix' })]),

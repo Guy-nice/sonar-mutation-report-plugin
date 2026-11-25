@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 
 const data = () => new FakeData([project('p', [
-  makePr('14', { score: 70.9, scoreBefore: 55, durationSec: 1320, portfolio: 'Routing', hours: 3, measures: { new_mutation_survived: 19, new_mutation_no_coverage: 12 } }),
+  makePr('14', { score: 70.9, scoreBefore: 55, durationSec: 1320, hours: 3, measures: { new_mutation_survived: 19, new_mutation_no_coverage: 12 } }),
   makePr('13', { score: 84, scoreBefore: 60, durationSec: 600, hours: 30, measures: { new_mutation_survived: 3, new_mutation_no_coverage: 1 } }),
   noData('12', 60),
   makePr('10', { score: 80, hours: 24 * 9 }),
@@ -37,9 +37,26 @@ describe('PR list', () => {
     expect(root.textContent?.toLowerCase()).not.toContain('median');
   });
 
-  it('the subtitle names the portfolio when the PRs carry one', async () => {
+  const withTeams = () => {
+    const d = data();
+    d.portfolios = [{ key: 'r', name: 'Routing', projectKeys: ['p', 'q'] }, { key: 'x', name: 'Other', projectKeys: ['q'] }, { key: 'y', name: 'Platform', projectKeys: ['p'] }];
+    return d;
+  };
+
+  it('the subtitle names the Sonar Portfolios the component is in, and none when it is in none', async () => {
+    await renderPrList(root, withTeams(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    expect(root.querySelector('.md-sub')?.textContent).toContain('Portfolio: Routing, Platform');
     await renderPrList(root, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
-    expect(root.querySelector('.md-sub')?.textContent).toContain('Portfolio: Routing');
+    expect(root.querySelector('.md-sub')?.textContent).not.toContain('Portfolio');
+  });
+
+  it('the component row sits on top: same numbers as its overview row, portfolios, and a link back', async () => {
+    await renderPrList(root, withTeams(), { key: 'p', name: 'p' }, () => {}, () => NOW);
+    const cells = [...root.querySelectorAll('tr[data-row="component"] td')].map((c) => c.textContent);
+    expect(cells).toEqual(['p', 'Routing, Platform', '55.0%', '70.9%', '▲ +15.9', 'Fail→Fail', 'Needs Work', '2026-10-05', '22m']);
+    const order = [...root.querySelectorAll('[data-card]')].map((c) => c.getAttribute('data-card'));
+    expect(order.slice(0, 2)).toEqual(['component', 'details']);
+    expect(root.querySelector('a[data-action="back"]')?.getAttribute('href')).toContain('/extension/mutationreport/overview');
   });
 
   it('cards: recent PR before/after bars and the mutant distribution', async () => {

@@ -31,8 +31,6 @@ export interface PrResult {
   scoreBefore: number | null;
   /** mutation_run_duration: seconds the agent took in total. Null when not reported. */
   durationSec: number | null;
-  /** mutation_portfolio: group of the component (property sonar.mutation.portfolio). Null when not set. */
-  portfolio: string | null;
   threshold: number;
   /** True when mutation_threshold was missing and DEFAULT_THRESHOLD was used. */
   thresholdAssumed: boolean;

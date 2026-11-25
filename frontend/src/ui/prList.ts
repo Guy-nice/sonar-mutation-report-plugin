@@ -27,7 +27,8 @@ export async function renderPrList(
   root.replaceChildren(box);
   box.append(h('h1', {}, `Mutation - ${project.name}`), h('p', { class: 'md-muted' }, 'Loading pull requests...'));
 
-  const res = await data.loadProject(project);
+  const [res, portfolios] = await Promise.all([data.loadProject(project), data.listPortfolios()]);
+  const teams = portfolios.filter((p) => p.projectKeys.includes(project.key)).map((p) => p.name);
   clear(box);
   const title = `Mutation - ${project.name}`;
   if (res.error) {
@@ -43,8 +44,7 @@ export async function renderPrList(
     return;
   }
 
-  const portfolio = [...inWin].filter((r) => r.hasData).sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate)).find((r) => r.portfolio !== null)?.portfolio;
-  box.append(...pageHeader(title, inWin, ...(portfolio ? [`Portfolio: ${portfolio}`] : []), `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
+  box.append(...pageHeader(title, inWin, ...(teams.length > 0 ? [`Portfolio: ${teams.join(', ')}`] : []), `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
 
   let status: StatusFilter = 'all';
   let days = 30;
@@ -97,7 +97,7 @@ export async function renderPrList(
         h('th', { class: ['Before', 'After', 'Change (pts)', 'Time taken'].includes(t) ? 'num' : '' }, t)))),
       h('tbody', {}, h('tr', { 'data-row': 'component' },
         h('td', {}, h('b', {}, project.name)),
-        h('td', {}, sum.portfolio ?? h('span', { class: 'md-muted' }, '-')),
+        h('td', {}, teams.length > 0 ? teams.join(', ') : h('span', { class: 'md-muted' }, '-')),
         h('td', { class: 'num' }, fmtPct(sum.before)),
         h('td', { class: 'num' }, fmtPct(sum.after)),
         h('td', { class: 'num' }, changeCell(sum.change)),
