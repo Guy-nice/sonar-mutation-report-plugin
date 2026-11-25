@@ -56,6 +56,19 @@ const data = new FakeData(
   { mutation_score: 76, new_mutation_score: 67, new_mutation_score_before: 58, mutation_run_duration: 1320, new_mutation_typescript_total: 90, new_mutation_typescript_killed: 62, new_mutation_typescript_survived: 18, new_mutation_typescript_score: 68.9, new_mutation_python_total: 19, new_mutation_python_killed: 14, new_mutation_python_survived: 4, new_mutation_python_score: 73.7, new_mutation_java_total: 18, new_mutation_java_killed: 14, new_mutation_java_survived: 2, new_mutation_java_score: 77.8 },
 );
 
+// Portfolios are Sonar Portfolios (team structure), not related to mutation. api-gateway sits in two of them.
+data.portfolios = [
+  { key: 'team-dana', name: "Dana's team", projectKeys: ['auth-service', 'api-gateway', 'storage-service', 'notification-hub', 'reporting-ui', 'audit-log'] },
+  { key: 'team-noa', name: "Noa's team", projectKeys: ['queue-manager', 'router-core', 'rules-engine', 'api-gateway', 'email-gateway'] },
+  { key: 'team-amir', name: "Amir's team", projectKeys: ['invoice-service', 'payments-core', 'ledger-sync', 'old-billing-batch'] },
+];
+// Slow the mock down so the loading state can be seen (the real API takes seconds to a minute).
+const slow = Number(new URLSearchParams(location.search).get('slow') ?? 0);
+if (slow) {
+  const orig = data.loadProject.bind(data);
+  let n = 0;
+  data.loadProject = async (p) => { await new Promise((r) => setTimeout(r, ++n * slow)); return orig(p); };
+}
 const now = () => new Date();
 // The fixtures use a fixed clock in tests; here, shift dates relative to the real now.
 for (const p of data.projects) for (const r of p.prs) r.pr.analysisDate = new Date(Date.now() - (Date.parse('2026-10-05T12:00:00Z') - Date.parse(r.pr.analysisDate))).toISOString();

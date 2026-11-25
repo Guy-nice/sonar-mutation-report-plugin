@@ -4,7 +4,7 @@ import {
   type PortfolioGroup, type ProjectSummary, type SortDir, type SortKey,
 } from '../model';
 import { injectStyles } from '../styles';
-import type { DataSource, ProjectRef, ProjectResult } from '../types';
+import type { DataSource, PortfolioRef, ProjectRef, ProjectResult } from '../types';
 import { clear, h, type Child } from './dom';
 import {
   DISTRIBUTION_TITLE, adoptionCard, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
@@ -56,6 +56,9 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   const results = new Map<string, ProjectResult>();
   let projects: ProjectRef[] = [];
   let loading = true;
+  let portfolioDefs: PortfolioRef[] = [];
+  /** When the last load finished: shown on the ready mark. */
+  let readyAt: Date | null = null;
   /** Weakest components first: that is where a manager looks. */
   let sortKey: SortKey = 'after';
   let sortDir: SortDir = 'asc';
@@ -136,6 +139,26 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     paintTimer = setTimeout(() => { paintTimer = null; paint(); }, PAINT_MS);
   }
 
+  /** Tells the user whether the numbers below are final: progress while loading, a ready mark with the time when done. */
+  function statusBar(): HTMLElement {
+    if (loading) {
+      const known = projects.length > 0;
+      const pct = known ? Math.round((results.size / projects.length) * 100) : 0;
+      return h('div', { class: 'md-status loading', 'data-status': 'loading', role: 'status' },
+        h('span', { class: 'md-spin', 'aria-hidden': 'true' }),
+        h('div', { class: 'md-status-main' },
+          h('b', {}, known ? `Loading data: ${results.size} of ${projects.length} components (${pct}%)` : 'Loading components and portfolios...'),
+          h('span', { class: 'md-muted' }, ' The numbers below are partial and change until loading is done.'),
+          h('div', { class: 'md-track md-status-track' }, h('span', { class: 'md-fill', style: `width:${pct}%` }))));
+    }
+    return h('div', { class: 'md-status ready', 'data-status': 'ready', role: 'status' },
+      h('span', { class: 'md-tickmark', 'aria-hidden': 'true' }, '✓'),
+      h('div', { class: 'md-status-main' },
+        h('b', {}, 'Data ready'),
+        h('span', { class: 'md-muted' }, ` ${projects.length} components checked${readyAt ? ` at ${readyAt.toTimeString().slice(0, 5)}` : ''}. `),
+        h('button', { class: 'md-link', 'data-action': 'refresh-status', onclick: () => void reload() }, 'Refresh')));
+  }
+
   function paint(): void {
     if (paintTimer !== null) { clearTimeout(paintTimer); paintTimer = null; }
     const list = [...results.values()];
@@ -148,21 +171,21 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const o = summarizeOverview(list, now());
     const windowPrs = list.filter((r) => !r.error).flatMap((r) => r.prs.filter((p) => inWindow(p, now())));
     const all = list.map((r) => summarizeProject(r, now()));
-    const portfolios = [...new Set(all.map((s) => s.portfolio).filter((p): p is string => p !== null))].sort((a, b) => a.localeCompare(b));
+    const portfolios = groupByPortfolio(all.filter(isLive), portfolioDefs).map((g) => g.portfolio).filter((p): p is string => p !== null);
     let summaries = all;
     // Only live components: a PR with mutation data in the window. The rest is counted, not listed.
     const dormant = all.filter((s) => !isLive(s) && s.error === null).length;
     summaries = summaries.filter((s) => isLive(s) || s.error !== null);
-    if (portfolio) summaries = summaries.filter((s) => (portfolio === NO_PORTFOLIO ? s.portfolio === null : s.portfolio === portfolio));
+    if (portfolio) summaries = summaries.filter((s) => groupByPortfolio([s], portfolioDefs).some((g) => (portfolio === NO_PORTFOLIO ? g.portfolio === null : g.portfolio === portfolio)));
     summaries = sortProjects(summaries, sortKey, sortDir);
 
-    const pairs = groupByPortfolio(all.filter(isLive))
-      .map((g) => g.rows.filter((s) => s.scanned && hasBefore(s.scanned)))
-      .filter((rows) => rows.length > 0)
-      .map((rows) => ({
-        key: rows[0].portfolio ?? NO_PORTFOLIO, label: `${rows[0].portfolio ?? 'No portfolio'} (${rows.length})`,
-        before: mean(rows.map((s) => s.before as number)), after: mean(rows.map((s) => s.after as number)) as number,
-        tick: rows[0].scanned?.threshold ?? 80,
+    const pairs = groupByPortfolio(all.filter(isLive), portfolioDefs)
+      .map((g) => ({ name: g.portfolio ?? 'No portfolio', rows: g.rows.filter((s) => s.scanned && hasBefore(s.scanned)) }))
+      .filter((g) => g.rows.length > 0)
+      .map((g) => ({
+        key: g.name, label: `${g.name} (${g.rows.length})`,
+        before: mean(g.rows.map((s) => s.before as number)), after: mean(g.rows.map((s) => s.after as number)) as number,
+        tick: g.rows[0].scanned?.threshold ?? 80,
       }))
       .sort((a, b) => b.after - a.after || a.label.localeCompare(b.label));
 
@@ -178,13 +201,14 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     }));
 
     const live = summaries.filter((s) => !s.error);
-    const groups = groupByPortfolio(live);
+    const groups = groupByPortfolio(live, portfolioDefs);
     const failed = summaries.filter((s) => s.error);
     const totals = summaryRow('All live components', live, 'md-sum', { 'data-row': 'total' });
     clear(body);
     body.append(
-      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${new Set(all.filter(isLive).map((x) => x.portfolio)).size} ${new Set(all.filter(isLive).map((x) => x.portfolio)).size === 1 ? 'portfolio' : 'portfolios'}`),
-      adoptionCard(adoption(all)),
+      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${portfolios.length + (groupByPortfolio(all.filter(isLive), portfolioDefs).some((g) => g.portfolio === null) ? 1 : 0)} ${'portfolios'}`),
+      statusBar(),
+      adoptionCard(adoption(all, portfolioDefs), loading),
       summaryTiles(windowPrs, now()),
       h('div', { class: 'md-cards' },
         card('Before → After Agent, by Portfolio', 'scores', pairedBarChart(pairs, loading ? 'Loading...' : 'No portfolio has a score yet.')),
@@ -205,7 +229,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
             ? h('p', { class: 'md-muted' }, 'No live components: no pull request with mutation data in the last 30 days.')
             : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...groups.flatMap(groupRows), ...failed.map(row), totals)),
         legend(),
-        h('p', { class: 'md-note2' }, 'Only live components are listed (a pull request with mutation data in the last 30 days), grouped by portfolio (sonar.mutation.portfolio). Click a portfolio to collapse it. Each component row is its most recent pull request with mutation data; a portfolio row averages its components. Before = new-code score of its first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the component\'s threshold. Status is the band of the After score. Time taken = the whole agent run. The last row averages all live components that report both scores.')),
+        h('p', { class: 'md-note2' }, 'Only live components are listed (a pull request with mutation data in the last 30 days), grouped by Sonar Portfolio (a component in several portfolios is listed under each). Click a portfolio to collapse it. Each component row is its most recent pull request with mutation data; a portfolio row averages its components. Before = new-code score of its first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the component\'s threshold. Status is the band of the After score. Time taken = the whole agent run. The last row averages all live components that report both scores.')),
     );
   }
 
@@ -224,10 +248,12 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     if (clearFirst) data.clearCache();
     results.clear();
     loading = true;
+    readyAt = null;
     paint();
     try {
-      const list = await data.listProjects();
+      const [list, defs] = await Promise.all([data.listProjects(), data.listPortfolios()]);
       if (id !== loadId) return;
+      portfolioDefs = defs;
       // Projects that had mutation data last time load first, so the page fills in at once on a big server.
       const known = knownAdopters();
       projects = [...list].sort((a, b) => Number(known.has(b.key)) - Number(known.has(a.key)));
@@ -248,6 +274,7 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     }));
     if (id !== loadId) return;
     loading = false;
+    readyAt = now();
     paint();
   }
   const reload = () => load(true);

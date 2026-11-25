@@ -1,7 +1,7 @@
 import { sonarBase } from './format';
 import { WINDOW_DAYS } from './model';
 import {
-  DEFAULT_THRESHOLD, type DataSource, type FileRow, type MetricInfo, type PrResult, type ProjectRef, type ProjectResult,
+  DEFAULT_THRESHOLD, type DataSource, type PortfolioRef, type FileRow, type MetricInfo, type PrResult, type ProjectRef, type ProjectResult,
   type PullRequestRef, type SurvivorRow,
 } from './types';
 
@@ -108,6 +108,11 @@ export class SonarApi implements DataSource {
     const items = await this.all<{ key: string; name: string }, { components: { key: string; name: string }[] }>(
       '/api/components/search', { qualifiers: 'TRK' }, (r) => r.components ?? []);
     return items.map((c) => ({ key: c.key, name: c.name }));
+  }
+
+  /** TODO(probe): the endpoint differs by Sonar version; run scripts/probe-portfolios.sh on sonartest first. Empty until then. */
+  async listPortfolios(): Promise<PortfolioRef[]> {
+    return [];
   }
 
   private async pullRequests(projectKey: string): Promise<PullRequestRef[]> {

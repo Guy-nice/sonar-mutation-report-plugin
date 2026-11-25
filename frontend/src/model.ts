@@ -1,4 +1,4 @@
-import type { FileRow, PrResult, ProjectResult } from './types';
+import type { FileRow, PortfolioRef, PrResult, ProjectResult } from './types';
 
 export const WINDOW_DAYS = 30;
 export const OPEN_WINDOW_DAYS = 7;
@@ -219,15 +219,17 @@ export function isLive(s: ProjectSummary): boolean {
 }
 
 export interface PortfolioGroup {
-  /** Null = components without a portfolio. */
+  /** Sonar Portfolio name. Null = components that are in no portfolio. */
   portfolio: string | null;
   rows: ProjectSummary[];
 }
 
-/** Portfolios A-Z, "no portfolio" last. Row order inside a group is the order of the input (the table sort). */
-export function groupByPortfolio(list: ProjectSummary[]): PortfolioGroup[] {
+/** Portfolios A-Z, "no portfolio" last. A component in several portfolios is listed under each. Row order is the input order. */
+export function groupByPortfolio(list: ProjectSummary[], portfolios: PortfolioRef[]): PortfolioGroup[] {
+  const of = new Map<string, string[]>();
+  for (const p of portfolios) for (const k of p.projectKeys) of.set(k, [...(of.get(k) ?? []), p.name]);
   const map = new Map<string | null, ProjectSummary[]>();
-  for (const s of list) map.set(s.portfolio, [...(map.get(s.portfolio) ?? []), s]);
+  for (const s of list) for (const name of of.get(s.key) ?? [null]) map.set(name, [...(map.get(name) ?? []), s]);
   return [...map.entries()]
     .map(([portfolio, rows]) => ({ portfolio, rows }))
     .sort((a, b) => (a.portfolio === null ? 1 : b.portfolio === null ? -1 : a.portfolio.localeCompare(b.portfolio)));
@@ -240,18 +242,21 @@ export interface Adoption {
   adopted: number;
   /** adopted / active in percent. Null when nothing is active. */
   pct: number | null;
-  /** Adopters per portfolio (A-Z, "no portfolio" last). Only adopters have a known portfolio. */
-  byPortfolio: Array<{ portfolio: string | null; adopted: number }>;
+  /** Per Sonar Portfolio (A-Z, "no portfolio" last). A component in several portfolios counts in each. */
+  byPortfolio: Array<{ portfolio: string | null; active: number; adopted: number; pct: number | null }>;
 }
 
 /** Share of active components that use mutation. Components with an error are not counted: their state is unknown. */
-export function adoption(list: ProjectSummary[]): Adoption {
+export function adoption(list: ProjectSummary[], portfolios: PortfolioRef[]): Adoption {
   const active = list.filter((s) => s.error === null && s.total > 0);
-  const adopters = active.filter(isLive);
+  const adopted = active.filter(isLive).length;
   return {
     active: active.length,
-    adopted: adopters.length,
-    pct: active.length === 0 ? null : (adopters.length / active.length) * 100,
-    byPortfolio: groupByPortfolio(adopters).map((g) => ({ portfolio: g.portfolio, adopted: g.rows.length })),
+    adopted,
+    pct: active.length === 0 ? null : (adopted / active.length) * 100,
+    byPortfolio: groupByPortfolio(active, portfolios).map((g) => {
+      const n = g.rows.filter(isLive).length;
+      return { portfolio: g.portfolio, active: g.rows.length, adopted: n, pct: g.rows.length === 0 ? null : (n / g.rows.length) * 100 };
+    }),
   };
 }

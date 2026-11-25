@@ -5,6 +5,14 @@ export interface ProjectRef {
   name: string;
 }
 
+/** A Sonar Portfolio (a team's group of projects). Independent of mutation testing: membership is set in Sonar. */
+export interface PortfolioRef {
+  key: string;
+  name: string;
+  /** Keys of the projects in it, sub-portfolios included. A project can be in several portfolios. */
+  projectKeys: string[];
+}
+
 export interface PullRequestRef {
   key: string;
   title: string;
@@ -66,6 +74,8 @@ export interface SurvivorRow {
 /** Everything the UI needs from Sonar. The only implementation that touches the network is SonarApi. */
 export interface DataSource {
   listProjects(): Promise<ProjectRef[]>;
+  /** Never rejects: a server without Portfolios (or no permission) gives an empty list. */
+  listPortfolios(): Promise<PortfolioRef[]>;
   /** Never rejects: a failure becomes ProjectResult.error. */
   loadProject(project: ProjectRef): Promise<ProjectResult>;
   loadPullRequest(projectKey: string, prKey: string): Promise<PrResult | null>;

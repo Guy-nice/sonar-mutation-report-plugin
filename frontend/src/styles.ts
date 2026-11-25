@@ -41,13 +41,21 @@ export const CSS = `
 .md-table tbody tr:last-child td{border-bottom:0}
 .md-table th.num,.md-table td.num{text-align:right}
 .md-table th.desc::after{content:" \\25BC"}.md-table th.asc::after{content:" \\25B2"}
-.md-table tr.md-group{background:#f1f5f9;cursor:pointer}.md-table tr.md-group td{padding:12px 8px;border-top:2px solid #cbd5e1}.md-table tr.md-group:hover{background:#e8eef5}
+.md-table tr.md-group{background:#f1f5f9;cursor:pointer}.md-table tr.md-group td{background:#f1f5f9;padding:12px 8px;border-top:2px solid #cbd5e1}.md-table tr.md-group:hover{background:#e8eef5}
 .md-adopt-grid{display:grid;grid-template-columns:minmax(280px,1fr) 1.4fr;gap:40px;align-items:start;margin:0 0 14px}
 .md-adopt-big{font-size:56px;line-height:1.05;font-weight:700;color:#065f46}
 .md-adopt-cap{font-size:14px;color:#1a202c;margin:8px 0 14px}
 .md-adopt-track{margin:0 0 10px}
 .md-adopt-sub{font-size:12px;color:#4a5568}
 .md-adopt-title{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:0 0 14px}
+.md-status{display:flex;gap:14px;align-items:flex-start;border-radius:8px;padding:14px 18px;margin:0 0 24px;border:1px solid}
+.md-status.loading{background:#eff6ff;border-color:#bfdbfe}.md-status.ready{background:#ecfdf5;border-color:#a7f3d0}
+.md-status-main{flex:1}.md-status-track{margin:10px 0 0;height:8px}
+.md-spin{width:18px;height:18px;border:3px solid #bfdbfe;border-top-color:#2563eb;border-radius:50%;animation:md-rot .9s linear infinite;flex:none;margin-top:1px}
+@keyframes md-rot{to{transform:rotate(360deg)}}
+.md-tickmark{width:20px;height:20px;border-radius:50%;background:#059669;color:#fff;font-size:13px;line-height:20px;text-align:center;flex:none}
+.md-partial{margin-left:10px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#1d4ed8;background:#dbeafe;border-radius:10px;padding:2px 8px;vertical-align:middle}
+.md-adopt-row{grid-template-columns:170px 1fr 92px}
 .md-caret{display:inline-block;width:14px;color:#64748b}
 .md-back{display:inline-block;margin:0 0 10px;font-size:13px}
 .md-table tr.selected{background:#ecfdf5}.md-table tr[data-file]:hover{background:#f0fdf8}
