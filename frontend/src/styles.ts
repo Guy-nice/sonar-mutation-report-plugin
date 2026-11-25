@@ -16,6 +16,7 @@ export const CSS = `
 .md-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:18px 20px}
 .md-card h2{font-size:14px;font-weight:600;margin:0 0 22px}
 .md-card.wide{margin:0 0 28px}
+.md>.md-card{margin:0 0 28px}
 .md-hbars{display:flex;flex-direction:column;gap:12px}
 .md-hbar{display:grid;grid-template-columns:150px 1fr 44px;gap:14px;align-items:center;font-size:13px}
 .md-hbar .n{color:#4a5568;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -40,6 +41,9 @@ export const CSS = `
 .md-table tbody tr:last-child td{border-bottom:0}
 .md-table th.num,.md-table td.num{text-align:right}
 .md-table th.desc::after{content:" \\25BC"}.md-table th.asc::after{content:" \\25B2"}
+.md-table tr.md-group{background:#f1f5f9;cursor:pointer}.md-table tr.md-group td{padding:12px 8px;border-top:2px solid #cbd5e1}.md-table tr.md-group:hover{background:#e8eef5}
+.md-caret{display:inline-block;width:14px;color:#64748b}
+.md-back{display:inline-block;margin:0 0 10px;font-size:13px}
 .md-table tr.selected{background:#ecfdf5}.md-table tr[data-file]:hover{background:#f0fdf8}
 .md-fail{color:#dc4c4c;font-weight:600}.md-pass{color:${GREEN_DARK};font-weight:600}.md-muted{color:#64748b}
 .md-pill{display:inline-block;padding:3px 9px;border-radius:4px;font-size:12px;font-weight:700;color:#fff}

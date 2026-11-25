@@ -212,3 +212,23 @@ export function lastUpdated(prs: PrResult[]): string | null {
   const times = prs.map((r) => new Date(r.pr.analysisDate).getTime()).filter((t) => !Number.isNaN(t));
   return times.length ? new Date(Math.max(...times)).toISOString().slice(0, 10) : null;
 }
+
+/** A component is live when it has at least one PR with mutation data inside the window (summaries are already windowed). */
+export function isLive(s: ProjectSummary): boolean {
+  return s.error === null && s.withData > 0;
+}
+
+export interface PortfolioGroup {
+  /** Null = components without a portfolio. */
+  portfolio: string | null;
+  rows: ProjectSummary[];
+}
+
+/** Portfolios A-Z, "no portfolio" last. Row order inside a group is the order of the input (the table sort). */
+export function groupByPortfolio(list: ProjectSummary[]): PortfolioGroup[] {
+  const map = new Map<string | null, ProjectSummary[]>();
+  for (const s of list) map.set(s.portfolio, [...(map.get(s.portfolio) ?? []), s]);
+  return [...map.entries()]
+    .map(([portfolio, rows]) => ({ portfolio, rows }))
+    .sort((a, b) => (a.portfolio === null ? 1 : b.portfolio === null ? -1 : a.portfolio.localeCompare(b.portfolio)));
+}

@@ -1,11 +1,11 @@
 import { fmtDate, fmtDuration, fmtPct, projectPageUrl, sonarBase } from '../format';
 import {
-  distribution, gateOf, hasBefore, inWindow, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
-  type ProjectSummary, type SortDir, type SortKey,
+  distribution, gateOf, groupByPortfolio, hasBefore, inWindow, isLive, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
+  type PortfolioGroup, type ProjectSummary, type SortDir, type SortKey,
 } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, ProjectRef, ProjectResult } from '../types';
-import { clear, h } from './dom';
+import { clear, h, type Child } from './dom';
 import {
   DISTRIBUTION_TITLE, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
 } from './widgets';
@@ -42,7 +42,6 @@ function rememberAdopter(key: string): void {
 /** `num` columns are right-aligned. Gate and Status have no sort key: they are derived from the scores. */
 const COLUMNS: Array<{ key: SortKey | null; label: string; num?: boolean }> = [
   { key: 'name', label: 'Component' },
-  { key: 'portfolio', label: 'Portfolio' },
   { key: 'before', label: 'Before', num: true },
   { key: 'after', label: 'After', num: true },
   { key: 'change', label: 'Change (pts)', num: true },
@@ -60,8 +59,8 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   /** Weakest components first: that is where a manager looks. */
   let sortKey: SortKey = 'after';
   let sortDir: SortDir = 'asc';
-  /** On by default: a server can hold thousands of projects and almost all of them have no mutation data. */
-  let onlyWithData = true;
+  /** Group headers the user collapsed. */
+  const collapsed = new Set<string>();
   let portfolio = '';
   /** Bumped by every load and by dispose: results of an older load are dropped. */
   let loadId = 0;
@@ -82,7 +81,6 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     }
     const gate = gateOf(s);
     tr.append(
-      h('td', { 'data-col': 'portfolio' }, s.portfolio ?? h('span', { class: 'md-muted' }, '-')),
       h('td', { 'data-col': 'before', class: 'num' }, fmtPct(s.before)),
       h('td', { 'data-col': 'after', class: 'num' }, fmtPct(s.after)),
       h('td', { 'data-col': 'change', class: 'num' }, changeCell(s.change)),
@@ -95,21 +93,41 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
   }
 
   /** Mean of the components that report both scores, so the row compares like with like. */
-  function totalsRow(rows: ProjectSummary[]): HTMLElement | null {
+  function summaryRow(label: Child, rows: ProjectSummary[], cls: string, attrs: Record<string, string> = {}, onclick?: () => void): HTMLElement | null {
     const both = rows.filter((s) => s.scanned && hasBefore(s.scanned));
-    if (both.length === 0) return null;
+    const times = rows.filter((s) => s.durationSec !== null).map((s) => s.durationSec as number);
+    const scans = rows.map((s) => s.scanDate).filter((d): d is string => d !== null).sort();
+    const tr = h('tr', { class: cls, ...attrs, ...(onclick ? { onclick } : {}) }, h('td', {}, label));
+    if (both.length === 0) {
+      // Older agents report no first score: show what exists (the after score) and leave the rest empty.
+      const afters = rows.map((s) => s.after).filter((v): v is number => v !== null);
+      const a = mean(afters);
+      tr.append(h('td', { class: 'num' }, '-'), h('td', { class: 'num' }, fmtPct(a)), h('td', { class: 'num' }, changeCell(null)), h('td', {}, '-'),
+        h('td', {}, bandPill(a)), h('td', {}, scans.length ? fmtDate(scans[scans.length - 1]) : '-'),
+        h('td', { class: 'num' }, times.length ? fmtDuration(times.reduce((x, v) => x + v, 0)) : '-'));
+      return tr;
+    }
     const before = mean(both.map((s) => s.before as number)) as number;
     const after = mean(both.map((s) => s.after as number)) as number;
     const passBefore = both.filter((s) => gateOf(s).before).length;
     const passAfter = both.filter((s) => gateOf(s).after).length;
-    const times = rows.filter((s) => s.durationSec !== null).map((s) => s.durationSec as number);
-    return h('tr', { class: 'md-sum', 'data-row': 'total' },
-      h('td', {}, 'All components'), h('td', {}),
+    tr.append(
       h('td', { class: 'num' }, fmtPct(before)), h('td', { class: 'num' }, fmtPct(after)),
       h('td', { class: 'num' }, changeCell(after - before)),
       h('td', {}, h('span', { class: 'md-gate' }, h('span', { class: 'a' }, `${passBefore} pass`), h('span', { class: 'arr' }, '→'), h('span', { class: 'b' }, `${passAfter} pass`))),
-      h('td', {}), h('td', {}),
+      h('td', {}, bandPill(after)),
+      h('td', {}, scans.length ? fmtDate(scans[scans.length - 1]) : '-'),
       h('td', { class: 'num' }, times.length ? fmtDuration(times.reduce((a, v) => a + v, 0)) : '-'));
+    return tr;
+  }
+
+  function groupRows(g: PortfolioGroup): HTMLElement[] {
+    const id = g.portfolio ?? NO_PORTFOLIO;
+    const open = !collapsed.has(id);
+    const label = h('span', {}, h('span', { class: 'md-caret' }, open ? '▾' : '▸'), ' ', h('b', {}, g.portfolio ?? 'No portfolio'),
+      h('span', { class: 'md-muted' }, `  ${g.rows.length} ${g.rows.length === 1 ? 'component' : 'components'}`));
+    const head = summaryRow(label, g.rows, 'md-group', { 'data-portfolio': id }, () => { if (open) collapsed.add(id); else collapsed.delete(id); paint(); }) as HTMLElement;
+    return [head, ...(open ? g.rows.map(row) : [])];
   }
 
   /** While projects stream in, repaint at most every PAINT_MS: one repaint per project is quadratic on a big server. */
@@ -132,15 +150,21 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     const all = list.map((r) => summarizeProject(r, now()));
     const portfolios = [...new Set(all.map((s) => s.portfolio).filter((p): p is string => p !== null))].sort((a, b) => a.localeCompare(b));
     let summaries = all;
-    const hiddenCount = all.filter((s) => s.withData === 0 && s.error === null).length;
-    if (onlyWithData) summaries = summaries.filter((s) => s.withData > 0 || s.error !== null);
+    // Only live components: a PR with mutation data in the window. The rest is counted, not listed.
+    const dormant = all.filter((s) => !isLive(s) && s.error === null).length;
+    summaries = summaries.filter((s) => isLive(s) || s.error !== null);
     if (portfolio) summaries = summaries.filter((s) => (portfolio === NO_PORTFOLIO ? s.portfolio === null : s.portfolio === portfolio));
     summaries = sortProjects(summaries, sortKey, sortDir);
 
-    const pairs = all
-      .filter((s) => s.after !== null)
-      .sort((a, b) => (b.after as number) - (a.after as number) || a.name.localeCompare(b.name))
-      .map((s) => ({ key: s.key, label: s.name, before: s.before, after: s.after as number, tick: (s.scanned as { threshold: number }).threshold }));
+    const pairs = groupByPortfolio(all.filter(isLive))
+      .map((g) => g.rows.filter((s) => s.scanned && hasBefore(s.scanned)))
+      .filter((rows) => rows.length > 0)
+      .map((rows) => ({
+        key: rows[0].portfolio ?? NO_PORTFOLIO, label: `${rows[0].portfolio ?? 'No portfolio'} (${rows.length})`,
+        before: mean(rows.map((s) => s.before as number)), after: mean(rows.map((s) => s.after as number)) as number,
+        tick: rows[0].scanned?.threshold ?? 80,
+      }))
+      .sort((a, b) => b.after - a.after || a.label.localeCompare(b.label));
 
     const head = h('tr', {}, ...COLUMNS.map((c) => {
       const num = c.num ? 'num ' : '';
@@ -153,35 +177,34 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
       } }, c.label);
     }));
 
-    const totals = totalsRow(summaries.filter((s) => !s.error));
+    const live = summaries.filter((s) => !s.error);
+    const groups = groupByPortfolio(live);
+    const failed = summaries.filter((s) => s.error);
+    const totals = summaryRow('All live components', live, 'md-sum', { 'data-row': 'total' });
     clear(body);
     body.append(
-      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} of ${o.projectsTotal} components use mutation`),
+      ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${new Set(all.filter(isLive).map((x) => x.portfolio)).size} ${new Set(all.filter(isLive).map((x) => x.portfolio)).size === 1 ? 'portfolio' : 'portfolios'}`),
       summaryTiles(windowPrs, now()),
       h('div', { class: 'md-cards' },
-        card('Before → After Agent, by Component', 'scores', pairedBarChart(pairs, loading ? 'Loading...' : 'No component has a score yet.')),
+        card('Before → After Agent, by Portfolio', 'scores', pairedBarChart(pairs, loading ? 'Loading...' : 'No portfolio has a score yet.')),
         distributionCard(DISTRIBUTION_TITLE, distribution(windowPrs))),
-      card('Component changes', 'details',
+      card('Component changes, by portfolio', 'details',
         h('div', { class: 'md-filters' },
-          h('label', {}, h('input', { type: 'checkbox', 'data-filter': 'withData', ...(onlyWithData ? { checked: 'checked' } : {}), onclick: (e: Event) => {
-            onlyWithData = (e.target as HTMLInputElement).checked;
-            paint();
-          } }), ` Only components with mutation data${onlyWithData && hiddenCount > 0 ? ` (${hiddenCount} without data hidden)` : ''}`),
+          h('span', {}, `Live components only: a pull request with mutation data in the last 30 days${dormant > 0 ? ` (${dormant} inactive hidden)` : ''}`),
           portfolios.length === 0 ? null : h('label', {}, 'Portfolio ',
             h('select', { 'data-filter': 'portfolio', onchange: (e: Event) => { portfolio = (e.target as HTMLSelectElement).value; paint(); } },
               h('option', { value: '', ...(portfolio === '' ? { selected: 'selected' } : {}) }, 'All'),
               ...portfolios.map((p) => h('option', { value: p, ...(portfolio === p ? { selected: 'selected' } : {}) }, p)),
               h('option', { value: NO_PORTFOLIO, ...(portfolio === NO_PORTFOLIO ? { selected: 'selected' } : {}) }, 'No portfolio'))),
-          h('span', {}, 'Last 30 days'),
           h('button', { class: 'md-link', 'data-action': 'refresh', onclick: () => void reload() }, 'Refresh'),
           loading ? h('span', { 'data-loading': 'true' }, `Loading ${results.size} / ${projects.length} components...`) : null),
         projects.length === 0 && !loading
           ? h('p', { class: 'md-muted' }, 'No components found.')
           : summaries.length === 0 && !loading
-            ? h('p', { class: 'md-muted' }, 'No components with mutation data.')
-            : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...summaries.map(row), totals)),
+            ? h('p', { class: 'md-muted' }, 'No live components: no pull request with mutation data in the last 30 days.')
+            : h('table', { class: 'md-table' }, h('thead', {}, head), h('tbody', {}, ...groups.flatMap(groupRows), ...failed.map(row), totals)),
         legend(),
-        h('p', { class: 'md-note2' }, 'Each row is the component\'s most recent pull request with mutation data. Before = new-code score of its first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the component\'s threshold. Status is the band of the After score. Time taken = the whole agent run. The last row averages the components that report both scores.')),
+        h('p', { class: 'md-note2' }, 'Only live components are listed (a pull request with mutation data in the last 30 days), grouped by portfolio (sonar.mutation.portfolio). Click a portfolio to collapse it. Each component row is its most recent pull request with mutation data; a portfolio row averages its components. Before = new-code score of its first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the component\'s threshold. Status is the band of the After score. Time taken = the whole agent run. The last row averages all live components that report both scores.')),
     );
   }
 

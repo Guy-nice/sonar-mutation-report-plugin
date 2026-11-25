@@ -24,6 +24,7 @@ const mk = (key: string, before: number, after: number, minutes: number, hours: 
 const d = 24;
 const PS = 'Platform Services';
 const RT = 'Routing';
+const BL = 'Billing';
 
 const pr212 = mk('212', 58, 67, 22, 3, 'token refresh retry', RT, 127);
 
@@ -35,6 +36,14 @@ const data = new FakeData(
     project('router-core', [mk('51', 30, 44, 38, 2 * d, 'matcher rewrite', RT, 150)]),
     project('storage-service', [mk('77', 55, 71, 19, 3 * d, 'blob lifecycle', PS, 110)]),
     project('rules-engine', [noData('12', 40)]),
+    project('invoice-service', [mk('64', 49, 81, 24, 4, 'tax rounding', BL, 120), mk('61', 52, 77, 21, 5 * d, 'credit notes', BL, 95)]),
+    project('payments-core', [mk('140', 63, 90, 18, 6, 'refund flow', BL, 130)]),
+    project('ledger-sync', [mk('33', 40, 58, 35, 12 * d, 'batch import', BL, 105)]),
+    project('notification-hub', [mk('90', 72, 86, 15, 26, 'retry policy', PS, 100)]),
+    // inactive: no pull request in the last 30 days (not shown on the overview)
+    project('old-billing-batch', [mk('9', 50, 70, 20, 41 * d, 'legacy job', BL, 80)]),
+    project('archive-tool', [mk('3', 45, 60, 20, 63 * d, 'cleanup', null, 80)]),
+    project('sandbox-playground', [noData('2', 50 * d)]),
     // an older agent: no first score, no run time, no portfolio
     project('legacy-reports', [makePr('7', { score: 91, hours: 5 * d, title: 'export fix' })]),
   ],
