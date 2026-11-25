@@ -1,13 +1,13 @@
 import { fmtDate, fmtDuration, fmtPct, projectPageUrl, sonarBase } from '../format';
 import {
-  distribution, gateOf, groupByPortfolio, hasBefore, inWindow, isLive, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
+  adoption, distribution, gateOf, groupByPortfolio, hasBefore, inWindow, isLive, isNoPrAnalysis, mean, sortProjects, summarizeOverview, summarizeProject,
   type PortfolioGroup, type ProjectSummary, type SortDir, type SortKey,
 } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, ProjectRef, ProjectResult } from '../types';
 import { clear, h, type Child } from './dom';
 import {
-  DISTRIBUTION_TITLE, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
+  DISTRIBUTION_TITLE, adoptionCard, bandPill, card, changeCell, distributionCard, gateChange, legend, pageHeader, pairedBarChart, summaryTiles,
 } from './widgets';
 
 const TITLE = 'Mutation overview';
@@ -184,13 +184,14 @@ export function renderOverview(root: HTMLElement, data: DataSource, now: () => D
     clear(body);
     body.append(
       ...pageHeader(TITLE, windowPrs, `${o.projectsWithData} live ${o.projectsWithData === 1 ? 'component' : 'components'} in ${new Set(all.filter(isLive).map((x) => x.portfolio)).size} ${new Set(all.filter(isLive).map((x) => x.portfolio)).size === 1 ? 'portfolio' : 'portfolios'}`),
+      adoptionCard(adoption(all)),
       summaryTiles(windowPrs, now()),
       h('div', { class: 'md-cards' },
         card('Before → After Agent, by Portfolio', 'scores', pairedBarChart(pairs, loading ? 'Loading...' : 'No portfolio has a score yet.')),
         distributionCard(DISTRIBUTION_TITLE, distribution(windowPrs))),
       card('Component changes, by portfolio', 'details',
         h('div', { class: 'md-filters' },
-          h('span', {}, `Live components only: a pull request with mutation data in the last 30 days${dormant > 0 ? ` (${dormant} inactive hidden)` : ''}`),
+          h('span', {}, `Live components only: a pull request with mutation data in the last 30 days${dormant > 0 ? ` (${dormant} without a recent mutation run hidden)` : ''}`),
           portfolios.length === 0 ? null : h('label', {}, 'Portfolio ',
             h('select', { 'data-filter': 'portfolio', onchange: (e: Event) => { portfolio = (e.target as HTMLSelectElement).value; paint(); } },
               h('option', { value: '', ...(portfolio === '' ? { selected: 'selected' } : {}) }, 'All'),

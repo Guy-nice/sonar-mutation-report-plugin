@@ -42,6 +42,12 @@ export const CSS = `
 .md-table th.num,.md-table td.num{text-align:right}
 .md-table th.desc::after{content:" \\25BC"}.md-table th.asc::after{content:" \\25B2"}
 .md-table tr.md-group{background:#f1f5f9;cursor:pointer}.md-table tr.md-group td{padding:12px 8px;border-top:2px solid #cbd5e1}.md-table tr.md-group:hover{background:#e8eef5}
+.md-adopt-grid{display:grid;grid-template-columns:minmax(280px,1fr) 1.4fr;gap:40px;align-items:start;margin:0 0 14px}
+.md-adopt-big{font-size:56px;line-height:1.05;font-weight:700;color:#065f46}
+.md-adopt-cap{font-size:14px;color:#1a202c;margin:8px 0 14px}
+.md-adopt-track{margin:0 0 10px}
+.md-adopt-sub{font-size:12px;color:#4a5568}
+.md-adopt-title{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:0 0 14px}
 .md-caret{display:inline-block;width:14px;color:#64748b}
 .md-back{display:inline-block;margin:0 0 10px;font-size:13px}
 .md-table tr.selected{background:#ecfdf5}.md-table tr[data-file]:hover{background:#f0fdf8}

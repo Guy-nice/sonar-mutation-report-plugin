@@ -1,5 +1,5 @@
 import { fmtDuration, fmtInt, fmtPct, fmtPts } from '../format';
-import { BANDS, bandLabel, bandOf, hasBefore, isFailing, isOpen, isPassing, lastUpdated, mean, wasPassing, type Band, type Distribution } from '../model';
+import { BANDS, bandLabel, bandOf, hasBefore, isFailing, isOpen, isPassing, lastUpdated, mean, wasPassing, type Adoption, type Band, type Distribution } from '../model';
 import type { PrResult } from '../types';
 import { h, type Child } from './dom';
 
@@ -144,4 +144,28 @@ export function bandPill(score: number | null): HTMLElement {
 export function legend(): HTMLElement {
   return h('div', { class: 'md-legend' }, ...BANDS.map((b) =>
     h('span', {}, h('i', { class: b.band as Band }), `${b.label} (${b.range})`)));
+}
+
+/**
+ * Adoption of mutation testing: how many of the active components (a pull request in the last 30 days) use it, and where.
+ * A component that has not adopted has no portfolio (the portfolio comes from its mutation report), so only adopters are split.
+ */
+export function adoptionCard(a: Adoption): HTMLElement {
+  const pct = a.pct;
+  const left = h('div', { class: 'md-adopt-main' },
+    h('div', { class: 'md-adopt-big' }, pct === null ? '-' : `${Math.round(pct)}%`),
+    h('div', { class: 'md-adopt-cap' }, `${a.adopted} of ${a.active} active components use mutation testing`),
+    h('div', { class: 'md-track md-adopt-track' }, h('span', { class: 'md-fill', style: `width:${pct ?? 0}%` })),
+    h('div', { class: 'md-adopt-sub' }, `${a.active - a.adopted} active ${a.active - a.adopted === 1 ? 'component has' : 'components have'} not adopted yet`));
+  const max = Math.max(1, ...a.byPortfolio.map((r) => r.adopted));
+  const right = h('div', { class: 'md-hbars', 'data-adoption': 'portfolios' },
+    ...a.byPortfolio.map((r) => h('div', { class: 'md-hbar', 'data-portfolio-adoption': r.portfolio ?? '' },
+      h('span', { class: 'n' }, r.portfolio ?? 'No portfolio'),
+      h('span', { class: 'md-track' }, h('span', { class: 'md-fill', style: `width:${(r.adopted / max) * 100}%` })),
+      h('span', { class: 'p' }, String(r.adopted)))));
+  return h('section', { class: 'md-card md-adopt', 'data-card': 'adoption' },
+    h('h2', {}, 'Adoption of mutation testing (last 30 days)'),
+    h('div', { class: 'md-adopt-grid' }, left,
+      h('div', {}, h('div', { class: 'md-adopt-title' }, 'Components using mutation, by portfolio'), right)),
+    h('p', { class: 'md-note2' }, 'Active = a pull request analyzed in the last 30 days. A component that has not adopted mutation testing has no portfolio yet, so the split by portfolio counts adopters only.'));
 }

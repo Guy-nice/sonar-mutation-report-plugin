@@ -232,3 +232,26 @@ export function groupByPortfolio(list: ProjectSummary[]): PortfolioGroup[] {
     .map(([portfolio, rows]) => ({ portfolio, rows }))
     .sort((a, b) => (a.portfolio === null ? 1 : b.portfolio === null ? -1 : a.portfolio.localeCompare(b.portfolio)));
 }
+
+export interface Adoption {
+  /** Components with at least one pull request analyzed in the window: the 100%. */
+  active: number;
+  /** Active components with mutation data on at least one of those pull requests. */
+  adopted: number;
+  /** adopted / active in percent. Null when nothing is active. */
+  pct: number | null;
+  /** Adopters per portfolio (A-Z, "no portfolio" last). Only adopters have a known portfolio. */
+  byPortfolio: Array<{ portfolio: string | null; adopted: number }>;
+}
+
+/** Share of active components that use mutation. Components with an error are not counted: their state is unknown. */
+export function adoption(list: ProjectSummary[]): Adoption {
+  const active = list.filter((s) => s.error === null && s.total > 0);
+  const adopters = active.filter(isLive);
+  return {
+    active: active.length,
+    adopted: adopters.length,
+    pct: active.length === 0 ? null : (adopters.length / active.length) * 100,
+    byPortfolio: groupByPortfolio(adopters).map((g) => ({ portfolio: g.portfolio, adopted: g.rows.length })),
+  };
+}
