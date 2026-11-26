@@ -11,8 +11,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.sonar.api.batch.fs.internal.TestInputFileBuilder;
+import org.sonar.api.batch.sensor.Sensor;
 import org.sonar.api.batch.sensor.internal.DefaultSensorDescriptor;
 import org.sonar.api.batch.sensor.internal.SensorContextTester;
+import org.sonar.api.scanner.sensor.ProjectSensor;
 
 class MutationReportSensorTest {
 
@@ -168,5 +170,53 @@ class MutationReportSensorTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("Invalid mutation report")
         .hasMessageContaining("unsupported schemaVersion 7");
+  }
+
+  /**
+   * A module-level Sensor runs once per Maven/Gradle module and saves the same project measures each time:
+   * the scanner then fails with "Can not add the same measure twice". A ProjectSensor runs once per analysis.
+   */
+  @Test
+  void runsOncePerAnalysisAsAProjectSensor() {
+    // Sensor extends ProjectSensor, so being a ProjectSensor is not enough: it must not be a module Sensor.
+    assertThat(ProjectSensor.class).isAssignableFrom(MutationReportSensor.class);
+    assertThat(Sensor.class.isAssignableFrom(MutationReportSensor.class)).isFalse();
+  }
+
+  /**
+   * Covers one report spanning several module directories. It cannot tell module-level from project-level
+   * execution (SensorContextTester calls execute directly): that is pinned by runsOncePerAnalysisAsAProjectSensor.
+   */
+  @Test
+  void publishesFilesAndIssuesForSeveralModulesFromOneReport() throws IOException {
+    for (String path : new String[] {"impl/src/Const.java", "it/src/Util.java"}) {
+      context.fileSystem().add(new TestInputFileBuilder("p", path).setModuleBaseDir(dir)
+          .setLines(10).setOriginalLineEndOffsets(new int[10]).setOriginalLineStartOffsets(new int[10])
+          .setContents("x\n".repeat(10)).build());
+    }
+    report("""
+        {"schemaVersion": 1, "run": {},
+         "summary": {"overall": {"total": 4, "killed": 2, "survived": 1, "noCoverage": 1}},
+         "languages": {"java": {"overall": {"total": 4, "killed": 2, "survived": 1, "noCoverage": 1}}},
+         "files": {
+           "impl/src/Const.java": {"language": "java", "lines": 10, "overall": {"total": 2, "killed": 1, "survived": 1}},
+           "it/src/Util.java": {"language": "java", "lines": 10, "overall": {"total": 2, "killed": 1, "noCoverage": 1}}},
+         "mutants": [
+           {"file": "impl/src/Const.java", "line": 3, "operator": "MathMutator", "status": "SURVIVED"},
+           {"file": "it/src/Util.java", "line": 4, "operator": "MathMutator", "status": "NO_COVERAGE"}]}
+        """);
+    new MutationReportSensor().execute(context);
+
+    assertThat(fileInt("impl/src/Const.java", "mutation_total")).isEqualTo(2);
+    assertThat(fileInt("it/src/Util.java", "mutation_no_coverage")).isEqualTo(1);
+    assertThat(context.allExternalIssues()).hasSize(2);
+  }
+
+  @Test
+  void aReportWithZeroMutantsPublishesWithoutAScore() throws IOException {
+    report("{\"schemaVersion\": 1, \"run\": {}, \"summary\": {\"overall\": {\"total\": 0}}}");
+    new MutationReportSensor().execute(context);
+    assertThat(projectInt("mutation_total")).isEqualTo(0);
+    assertThat(projectDouble("mutation_score")).isNull();
   }
 }
