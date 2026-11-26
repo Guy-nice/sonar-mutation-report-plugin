@@ -219,4 +219,42 @@ class MutationReportSensorTest {
     assertThat(projectInt("mutation_total")).isEqualTo(0);
     assertThat(projectDouble("mutation_score")).isNull();
   }
+
+  @Test
+  void refusesAnAgentDiffScopeScanOnTheMainBranch() throws IOException {
+    report("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"total\":2,\"killed\":1}}}");
+    context.settings().setProperty(MutationReportSensor.SOURCE, "agent");
+    context.settings().setProperty(MutationReportSensor.SCOPE, "diff");
+    assertThatThrownBy(() -> new MutationReportSensor().execute(context))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("main branch")
+        .hasMessageContaining("changed lines only");
+    assertThat(projectInt("mutation_total")).isNull();
+  }
+
+  @Test
+  void allowsAnAgentDiffScopeScanOnAPullRequestOrANamedBranch() throws IOException {
+    report("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"total\":2,\"killed\":1}}}");
+    context.settings().setProperty(MutationReportSensor.SOURCE, "agent");
+    context.settings().setProperty(MutationReportSensor.SCOPE, "diff");
+    context.settings().setProperty("sonar.pullrequest.key", "7");
+    new MutationReportSensor().execute(context);
+    assertThat(projectInt("mutation_total")).isEqualTo(2);
+  }
+
+  @Test
+  void allowsAFullScopeAgentScanAndAnyCiScanOnTheMainBranch() throws IOException {
+    report("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"total\":2,\"killed\":1}}}");
+    context.settings().setProperty(MutationReportSensor.SOURCE, "agent");
+    context.settings().setProperty(MutationReportSensor.SCOPE, "full");
+    new MutationReportSensor().execute(context);
+    assertThat(projectInt("mutation_total")).isEqualTo(2);
+  }
+
+  @Test
+  void aCiScanWithoutTheAgentMarkIsNotRefused() throws IOException {
+    report("{\"schemaVersion\":1,\"summary\":{\"overall\":{\"total\":2,\"killed\":1}}}");
+    new MutationReportSensor().execute(context);
+    assertThat(projectInt("mutation_total")).isEqualTo(2);
+  }
 }

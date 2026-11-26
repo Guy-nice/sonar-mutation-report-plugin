@@ -101,6 +101,7 @@ export const CSS = `
 .md-key b{display:inline-block;width:2px;height:13px;background:#1a202c;margin-right:6px;vertical-align:-2px}
 .md-gate .a{color:#64748b}.md-gate .arr{color:#94a3b8;margin:0 4px}.md-gate .b{font-weight:700}
 .md-gate .b.ok{color:${GREEN_DARK}}.md-gate .b.bad{color:#dc4c4c}
+.md-table td.md-dim{color:#94a3b8}
 .md-table tr.md-sum td{border-top:2px solid #e2e8f0;border-bottom:0;font-weight:700;background:#f1f5f9}
 @media (max-width:900px){.md-kpis{grid-template-columns:repeat(2,1fr)}.md-cards{grid-template-columns:1fr}.md{padding:16px}}
 `;

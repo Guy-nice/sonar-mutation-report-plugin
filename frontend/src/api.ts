@@ -1,7 +1,7 @@
 import { sonarBase } from './format';
 import { WINDOW_DAYS } from './model';
 import {
-  DEFAULT_THRESHOLD, type DataSource, type PortfolioRef, type FileRow, type MetricInfo, type PrResult, type ProjectRef, type ProjectResult,
+  DEFAULT_THRESHOLD, type DataSource, type PortfolioBreakdown, type PortfolioRef, type FileRow, type MetricInfo, type PrResult, type ProjectRef, type ProjectResult,
   type PullRequestRef, type SurvivorRow,
 } from './types';
 
@@ -117,11 +117,13 @@ export class SonarApi implements DataSource {
    */
   async listPortfolios(): Promise<PortfolioRef[]> {
     try {
+      // components/search lists every portfolio the viewer may see. views/list can answer with a part of them (it
+      // listed 1 of 49 on a production server), so it is only the fallback.
       const portfolios = await this.firstThatWorks<Array<{ key: string; name: string }>>([
-        async () => (await this.get<{ views?: Array<{ key: string; name: string; qualifier?: string }> }>('/api/views/list', {}))
-          .views?.filter((v) => (v.qualifier ?? 'VW') === 'VW').map((v) => ({ key: v.key, name: v.name })) ?? [],
         () => this.all<{ key: string; name: string }, { components?: Array<{ key: string; name: string }> }>(
           '/api/components/search', { qualifiers: 'VW' }, (r) => r.components ?? []),
+        async () => (await this.get<{ views?: Array<{ key: string; name: string; qualifier?: string }> }>('/api/views/list', {}))
+          .views?.filter((v) => (v.qualifier ?? 'VW') === 'VW').map((v) => ({ key: v.key, name: v.name })) ?? [],
       ]);
       return await Promise.all(portfolios.map(async (p) => ({ key: p.key, name: p.name, projectKeys: await this.portfolioProjects(p.key) })));
     } catch {
@@ -138,6 +140,30 @@ export class SonarApi implements DataSource {
         { component: portfolioKey, qualifiers: 'TRK', strategy: 'all', metricKeys: 'ncloc' }, (r) => r.components ?? []),
     ]);
     return [...new Set(comps.map((c) => c.refKey ?? c.key))];
+  }
+
+  async loadPortfolioBreakdown(portfolioKey: string, metricKeys: string[]): Promise<PortfolioBreakdown> {
+    type Comp = { key: string; name: string; refKey?: string; measures?: RawMeasure[] };
+    const rows = new Map<string, { key: string; name: string; measures: Record<string, number> }>();
+    // component_tree takes at most 15 metric keys per call.
+    for (let i = 0; i < metricKeys.length; i += 15) {
+      const comps = await this.all<Comp, { components?: Comp[] }>('/api/measures/component_tree',
+        { component: portfolioKey, qualifiers: 'TRK', strategy: 'all', metricKeys: metricKeys.slice(i, i + 15).join(',') },
+        (r) => r.components ?? []);
+      for (const c of comps) {
+        const key = c.refKey ?? c.key; // a portfolio lists a project as a reference
+        const row = rows.get(key) ?? { key, name: c.name, measures: {} };
+        Object.assign(row.measures, toMeasureMap(c.measures ?? []));
+        rows.set(key, row);
+      }
+    }
+    let name = portfolioKey;
+    try {
+      name = (await this.get<{ component?: { name?: string } }>('/api/components/show', { component: portfolioKey })).component?.name ?? name;
+    } catch {
+      // the title falls back to the key
+    }
+    return { name, rows: [...rows.values()] };
   }
 
   /** Runs the attempts in order and returns the first result; throws the last error when all fail. */

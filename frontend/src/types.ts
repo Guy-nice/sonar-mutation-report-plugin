@@ -13,6 +13,18 @@ export interface PortfolioRef {
   projectKeys: string[];
 }
 
+/** One project of a portfolio with the base measures the breakdown reads. */
+export interface PortfolioRow {
+  key: string;
+  name: string;
+  measures: Record<string, number>;
+}
+
+export interface PortfolioBreakdown {
+  name: string;
+  rows: PortfolioRow[];
+}
+
 export interface PullRequestRef {
   key: string;
   title: string;
@@ -74,6 +86,8 @@ export interface DataSource {
   listProjects(): Promise<ProjectRef[]>;
   /** Never rejects: a server without Portfolios (or no permission) gives an empty list. */
   listPortfolios(): Promise<PortfolioRef[]>;
+  /** Projects of a portfolio (sub-portfolios included) with the given measures. Rejects when the portfolio cannot be read. */
+  loadPortfolioBreakdown(portfolioKey: string, metricKeys: string[]): Promise<PortfolioBreakdown>;
   /** Never rejects: a failure becomes ProjectResult.error. */
   loadProject(project: ProjectRef): Promise<ProjectResult>;
   loadPullRequest(projectKey: string, prKey: string): Promise<PrResult | null>;

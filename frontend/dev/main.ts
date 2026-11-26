@@ -1,4 +1,5 @@
 import { renderOverview } from '../src/ui/overview';
+import { renderPortfolioPage } from '../src/ui/portfolioPage';
 import { renderProjectPage } from '../src/ui/projectPage';
 import type { FileRow, SurvivorRow } from '../src/types';
 import { FakeData, improved, makePr, noData, project } from '../test/fixtures';
@@ -73,3 +74,16 @@ for (const p of data.projects) for (const r of p.prs) r.pr.analysisDate = new Da
 renderOverview(document.getElementById('overview')!, data, now);
 void renderProjectPage(document.getElementById('project')!, data, { kind: 'project', project: 'queue-manager' }, now);
 void renderProjectPage(document.getElementById('detail')!, data, { kind: 'pr', project: 'queue-manager', pr: '212' }, now);
+
+// Portfolio breakdown: a big project with no mutation data, a small one with a lot of coverage and little reach, a well-reached one.
+data.breakdown = {
+  name: "Dana's team",
+  rows: [
+    { key: 'auth-service', name: 'auth-service', measures: { lines_to_cover: 4200, uncovered_lines: 380, ncloc: 9100, new_lines_to_cover: 120, new_uncovered_lines: 14, new_lines: 150, mutation_lines: 520, mutation_killed: 118, mutation_total: 140, mutation_survived: 15, mutation_no_coverage: 7 } },
+    { key: 'api-gateway', name: 'api-gateway', measures: { lines_to_cover: 12800, uncovered_lines: 2600, ncloc: 31000, new_lines_to_cover: 340, new_uncovered_lines: 90, new_lines: 410, mutation_lines: 640, mutation_killed: 71, mutation_total: 160, mutation_survived: 60, mutation_no_coverage: 29 } },
+    { key: 'storage-service', name: 'storage-service', measures: { lines_to_cover: 3100, uncovered_lines: 140, ncloc: 5200, mutation_lines: 2900, mutation_killed: 390, mutation_total: 430, mutation_survived: 30, mutation_no_coverage: 10 } },
+    { key: 'notification-hub', name: 'notification-hub', measures: { lines_to_cover: 900, uncovered_lines: 85, ncloc: 2100 } },
+    { key: 'reporting-ui', name: 'reporting-ui', measures: { lines_to_cover: 0, uncovered_lines: 0, ncloc: 800 } },
+  ],
+};
+void renderPortfolioPage(document.getElementById('portfolio')!, data, 'team-dana');

@@ -41,6 +41,9 @@ public class MutationReportSensor implements ProjectSensor {
   /** Optional group shown beside the component on the overview, e.g. a team or product area. */
   public static final String PORTFOLIO = "sonar.mutation.portfolio";
   public static final String ENGINE_ID = "mutation-report";
+  /** Set by the mutation agent on the scans it runs itself: who made the report and how much code it covers. */
+  public static final String SOURCE = "sonar.mutation.source";
+  public static final String SCOPE = "sonar.mutation.scope";
 
   @Override
   public void describe(SensorDescriptor descriptor) {
@@ -55,6 +58,7 @@ public class MutationReportSensor implements ProjectSensor {
       LOG.warn("Mutation report not found: {}", path);
       return;
     }
+    refuseDiffScopeOnMainBranch(context);
     Report report;
     try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
       report = ReportParser.parse(reader);
@@ -69,6 +73,24 @@ public class MutationReportSensor implements ProjectSensor {
     LOG.info("Mutation Report: published mutation_score={} ({} files, {} issues) from {}",
         report.summary.overall.score().isPresent() ? round1(report.summary.overall.score().getAsDouble()) : "n/a",
         files, issues, path);
+  }
+
+  /**
+   * A scan the agent ran by hand covers the changed lines only, and has no CI build behind it. Stored as
+   * the main branch's latest analysis it would replace the project's whole-code measures, so it is refused
+   * there. Pull request and named-branch analyses are fine. CI scans do not carry the agent mark.
+   */
+  static void refuseDiffScopeOnMainBranch(SensorContext context) {
+    boolean agentDiffScan = "agent".equals(context.config().get(SOURCE).orElse(""))
+        && "diff".equals(context.config().get(SCOPE).orElse(""));
+    boolean mainBranch = context.config().get("sonar.pullrequest.key").isEmpty()
+        && context.config().get("sonar.branch.name").isEmpty();
+    if (agentDiffScan && mainBranch) {
+      throw new IllegalStateException("Refused: this analysis would be stored as the main branch, but the report "
+          + "was made by the mutation agent for changed lines only (" + SCOPE + "=diff). It would replace the "
+          + "project's whole-code coverage and measures. Run it on a pull request or a named branch, or let CI "
+          + "upload the report.");
+    }
   }
 
   private static void publishProject(SensorContext context, Report report) {

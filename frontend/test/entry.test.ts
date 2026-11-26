@@ -36,7 +36,10 @@ describe('extension entry points', () => {
     await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0));
     mount();
     await new Promise((r) => setTimeout(r, 30));
-    expect(calls.filter((c) => c.includes('/api/components/search'))).toHaveLength(1);
+    // the projects and the portfolios are each asked for once: the second mount is served from the cache
+    const searches = calls.filter((c) => c.includes('/api/components/search'));
+    expect(new Set(searches).size).toBe(searches.length);
+    expect(searches.filter((c) => c.includes('qualifiers=TRK'))).toHaveLength(1);
   });
 
   it('project registers under mutationreport/project and cleans up', async () => {
@@ -45,6 +48,22 @@ describe('extension entry points', () => {
     const el = document.createElement('div');
     const cleanup = registered['mutationreport/project']({ el, component: { key: 'p' } }) as () => void;
     expect(el.textContent).toContain('Mutation');
+    cleanup();
+    expect(el.innerHTML).toBe('');
+  });
+
+  it('portfolio registers under mutationreport/portfolio, reads the portfolio the page is opened on, and cleans up', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => ({ components: [], paging: { total: 0 } }) };
+    });
+    await import('../src/entry-portfolio');
+    expect(Object.keys(registered)).toEqual(['mutationreport/portfolio']);
+    const el = document.createElement('div');
+    const cleanup = registered['mutationreport/portfolio']({ el, component: { key: 'APQ' } }) as () => void;
+    await vi.waitFor(() => expect(calls.some((c) => c.includes('component=APQ'))).toBe(true));
+    expect(el.textContent).toContain('Mutation breakdown');
     cleanup();
     expect(el.innerHTML).toBe('');
   });

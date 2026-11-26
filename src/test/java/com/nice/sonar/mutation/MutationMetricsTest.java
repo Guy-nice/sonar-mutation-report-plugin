@@ -74,4 +74,12 @@ class MutationMetricsTest {
     assertThat(MutationMetrics.bucket("cobol")).isEqualTo("other");
     assertThat(MutationMetrics.bucket(null)).isEqualTo("other");
   }
+
+  @Test
+  void theOverallMetricsSayTheyCoverChangedFilesNotTheWholeRepository() {
+    var byKey = new MutationMetrics().getMetrics().stream()
+        .collect(java.util.stream.Collectors.toMap(m -> m.getKey(), m -> m.getName()));
+    assertThat(byKey.get("mutation_score")).endsWith("(changed files)");
+    assertThat(byKey.get("new_mutation_score")).endsWith("(new code)");
+  }
 }
