@@ -155,7 +155,7 @@ Java test that looks for the bundles fails. Use `-Dfrontend.skip=true` to skip i
 when only the Java changed. `cd frontend && npm test` runs the frontend tests; `npm run dev` builds a local
 harness (`frontend/dev/index.html`, serve it over http) that renders both pages with fake data, no Sonar
 needed. `scripts/upload-mock-prs.sh` uploads several mock pull request analyses to a project, to see the pages
-with data. Design: `docs/specs/2026-10-05-mutation-dashboard-design.md`.
+with data. Design: `docs/specs/2026-10-05-mutation-dashboard-design.md`. Architecture (C4, UML, ADRs): `docs/architecture/`.
 
 ## Compatibility
 
