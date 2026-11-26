@@ -88,20 +88,21 @@ describe('loadProject', () => {
     expect(res.prs[0]).toMatchObject({ hasData: true, score: 70.9, threshold: 85, thresholdAssumed: false });
     expect(res.prs[1]).toMatchObject({ hasData: false, score: null });
   });
-  it('reads the first score, the agent run time and the portfolio', async () => {
+  it('reads the first score and the agent run time', async () => {
     const { fn, calls } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [
       { metric: 'new_mutation_score', value: '84' }, { metric: 'new_mutation_score_before', value: '78' },
-      { metric: 'mutation_run_duration', value: '754' }, { metric: 'mutation_portfolio', value: ' Platform Services ' },
+      { metric: 'mutation_run_duration', value: '754' },
     ] } }));
     const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
-    expect(res.prs[0]).toMatchObject({ score: 84, scoreBefore: 78, durationSec: 754, portfolio: 'Platform Services' });
+    expect(res.prs[0]).toMatchObject({ score: 84, scoreBefore: 78, durationSec: 754 });
     const asked = decodeURIComponent(calls.find((c) => c.includes('measures/component')) ?? '');
-    for (const k of ['new_mutation_score_before', 'mutation_run_duration', 'mutation_portfolio']) expect(asked).toContain(k);
+    for (const k of ['new_mutation_score_before', 'mutation_run_duration']) expect(asked).toContain(k);
+    expect(asked).not.toContain('mutation_portfolio');
   });
   it('a PR from an agent that does not report them has nulls, not zeros', async () => {
-    const { fn } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [{ metric: 'new_mutation_score', value: '50' }, { metric: 'mutation_portfolio', value: '  ' }] } }));
+    const { fn } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [{ metric: 'new_mutation_score', value: '50' }] } }));
     const res = await new SonarApi(fn).loadProject({ key: 'p', name: 'p' });
-    expect(res.prs[0]).toMatchObject({ scoreBefore: null, durationSec: null, portfolio: null });
+    expect(res.prs[0]).toMatchObject({ scoreBefore: null, durationSec: null });
   });
   it('missing threshold falls back to 80 and is flagged', async () => {
     const { fn } = fakeFetch((url) => (url.includes('project_pull_requests') ? prList(1) : { component: { measures: [{ metric: 'new_mutation_score', value: '50' }] } }));
@@ -238,5 +239,47 @@ describe('loadPullRequest', () => {
     const api = new SonarApi(fn);
     expect((await api.loadPullRequest('p', '2'))?.score).toBe(90);
     expect(await api.loadPullRequest('p', '99')).toBeNull();
+  });
+});
+
+describe('listPortfolios', () => {
+  const tree = (keys: Array<{ key: string; refKey?: string }>) => ({ paging: { total: keys.length }, components: keys });
+
+  it('lists the portfolios and their projects; a portfolio lists a project as a reference, refKey is the real key', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.includes('/api/views/list')) return { views: [{ key: 'team-a', name: "Dana's team", qualifier: 'VW' }, { key: 'sub', name: 'Sub', qualifier: 'SVW' }] };
+      if (url.includes('/api/components/tree')) return tree([{ key: 'team-a:p1', refKey: 'p1' }, { key: 'p2' }, { key: 'x:p1', refKey: 'p1' }]);
+      return {};
+    });
+    const res = await new SonarApi(fn).listPortfolios();
+    expect(res).toEqual([{ key: 'team-a', name: "Dana's team", projectKeys: ['p1', 'p2'] }]);
+    const tcall = decodeURIComponent(calls.find((c) => c.includes('/api/components/tree')) ?? '');
+    expect(tcall).toContain('component=team-a');
+    expect(tcall).toContain('qualifiers=TRK');
+    expect(tcall).toContain('strategy=all');
+  });
+
+  it('falls back to components/search when views/list is not there, and to measures/component_tree for the projects', async () => {
+    const { fn } = fakeFetch((url) => {
+      if (url.includes('/api/views/list')) return { status: 404 };
+      if (url.includes('/api/components/search')) return { paging: { total: 1 }, components: [{ key: 'v1', name: 'V1' }] };
+      if (url.includes('/api/components/tree')) return { status: 400 };
+      if (url.includes('/api/measures/component_tree')) return tree([{ key: 'p9' }]);
+      return {};
+    });
+    expect(await new SonarApi(fn).listPortfolios()).toEqual([{ key: 'v1', name: 'V1', projectKeys: ['p9'] }]);
+  });
+
+  it('a server without Portfolios, or a user without permission, gives an empty list and never rejects', async () => {
+    for (const status of [404, 403, 401]) {
+      const { fn } = fakeFetch(() => ({ status }));
+      expect(await new SonarApi(fn).listPortfolios()).toEqual([]);
+    }
+  });
+
+  it('paginates the projects of a big portfolio', async () => {
+    const page = (p: number) => ({ paging: { total: PAGE_SIZE + 1 }, components: Array.from({ length: p === 1 ? PAGE_SIZE : 1 }, (_, i) => ({ key: `k${p}-${i}` })) });
+    const { fn } = fakeFetch((url) => (url.includes('/api/views/list') ? { views: [{ key: 'big', name: 'Big' }] } : page(url.includes('p=2') ? 2 : 1)));
+    expect((await new SonarApi(fn).listPortfolios())[0].projectKeys).toHaveLength(PAGE_SIZE + 1);
   });
 });

@@ -1,4 +1,4 @@
-import type { FileRow, PrResult, ProjectResult } from './types';
+import type { FileRow, PortfolioRef, PrResult, ProjectResult } from './types';
 
 export const WINDOW_DAYS = 30;
 export const OPEN_WINDOW_DAYS = 7;
@@ -70,8 +70,6 @@ export interface ProjectSummary {
   withData: number;
   /** The most recent PR with mutation data: the component row shows its numbers. */
   scanned: PrResult | null;
-  /** Group of the component (sonar.mutation.portfolio) as seen on that PR. */
-  portfolio: string | null;
   before: number | null;
   after: number | null;
   change: number | null;
@@ -91,7 +89,6 @@ export function summarizeProject(res: ProjectResult, now: Date): ProjectSummary 
     total: prs.length,
     withData: withData.length,
     scanned,
-    portfolio: scanned?.portfolio ?? null,
     before: scanned?.scoreBefore ?? null,
     after: scanned?.score ?? null,
     change: scanned ? change(scanned) : null,
@@ -120,13 +117,12 @@ export function summarizeOverview(results: ProjectResult[], now: Date): Overview
   };
 }
 
-export type SortKey = 'name' | 'portfolio' | 'before' | 'after' | 'change' | 'scan' | 'time';
+export type SortKey = 'name' | 'before' | 'after' | 'change' | 'scan' | 'time';
 export type SortDir = 'asc' | 'desc';
 
 function sortValue(s: ProjectSummary, key: SortKey): number | string | null {
   switch (key) {
     case 'name': return s.name.toLowerCase();
-    case 'portfolio': return s.portfolio === null ? null : s.portfolio.toLowerCase();
     case 'before': return s.before;
     case 'after': return s.after;
     case 'change': return s.change;
@@ -211,4 +207,52 @@ export function distribution(prs: PrResult[]): Distribution {
 export function lastUpdated(prs: PrResult[]): string | null {
   const times = prs.map((r) => new Date(r.pr.analysisDate).getTime()).filter((t) => !Number.isNaN(t));
   return times.length ? new Date(Math.max(...times)).toISOString().slice(0, 10) : null;
+}
+
+/** A component is live when it has at least one PR with mutation data inside the window (summaries are already windowed). */
+export function isLive(s: ProjectSummary): boolean {
+  return s.error === null && s.withData > 0;
+}
+
+export interface PortfolioGroup {
+  /** Sonar Portfolio name. Null = components that are in no portfolio. */
+  portfolio: string | null;
+  rows: ProjectSummary[];
+}
+
+/** Portfolios A-Z, "no portfolio" last. A component in several portfolios is listed under each. Row order is the input order. */
+export function groupByPortfolio(list: ProjectSummary[], portfolios: PortfolioRef[]): PortfolioGroup[] {
+  const of = new Map<string, string[]>();
+  for (const p of portfolios) for (const k of p.projectKeys) of.set(k, [...(of.get(k) ?? []), p.name]);
+  const map = new Map<string | null, ProjectSummary[]>();
+  for (const s of list) for (const name of of.get(s.key) ?? [null]) map.set(name, [...(map.get(name) ?? []), s]);
+  return [...map.entries()]
+    .map(([portfolio, rows]) => ({ portfolio, rows }))
+    .sort((a, b) => (a.portfolio === null ? 1 : b.portfolio === null ? -1 : a.portfolio.localeCompare(b.portfolio)));
+}
+
+export interface Adoption {
+  /** Components with at least one pull request analyzed in the window: the 100%. */
+  active: number;
+  /** Active components with mutation data on at least one of those pull requests. */
+  adopted: number;
+  /** adopted / active in percent. Null when nothing is active. */
+  pct: number | null;
+  /** Per Sonar Portfolio (A-Z, "no portfolio" last). A component in several portfolios counts in each. */
+  byPortfolio: Array<{ portfolio: string | null; active: number; adopted: number; pct: number | null }>;
+}
+
+/** Share of active components that use mutation. Components with an error are not counted: their state is unknown. */
+export function adoption(list: ProjectSummary[], portfolios: PortfolioRef[]): Adoption {
+  const active = list.filter((s) => s.error === null && s.total > 0);
+  const adopted = active.filter(isLive).length;
+  return {
+    active: active.length,
+    adopted,
+    pct: active.length === 0 ? null : (adopted / active.length) * 100,
+    byPortfolio: groupByPortfolio(active, portfolios).map((g) => {
+      const n = g.rows.filter(isLive).length;
+      return { portfolio: g.portfolio, active: g.rows.length, adopted: n, pct: g.rows.length === 0 ? null : (n / g.rows.length) * 100 };
+    }),
+  };
 }

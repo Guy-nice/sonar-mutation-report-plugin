@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BANDS, bandLabel, bandOf, change, distribution, gateOf, hasBefore, lastUpdated,
+  BANDS, adoption, bandLabel, bandOf, change, distribution, gateOf, groupByPortfolio, hasBefore, isLive, lastUpdated,
   inWindow, isFailing, isNoPrAnalysis, isOpen, isPassing, mean, round1, sortFilesWeakestFirst, sortProjects, summarizeOverview, summarizeProject, wasPassing,
 } from '../src/model';
-import type { FileRow } from '../src/types';
+import type { FileRow, PortfolioRef } from '../src/types';
 import { NOW, improved, makePr, noData, project } from './fixtures';
 
 describe('isFailing / isPassing', () => {
@@ -92,7 +92,7 @@ describe('before and after the agent', () => {
 describe('summarizeProject', () => {
   it('the component row is the most recent PR with data; older and no-data PRs do not count', () => {
     const res = project('p', [
-      improved('1', 50, 70, 600, { hours: 2, portfolio: 'Routing' }),
+      improved('1', 50, 70, 600, { hours: 2 }),
       improved('2', 60, 90, 300, { hours: 30 }),
       noData('4', 1), // newest, but no mutation data
       makePr('5', { score: 50, hours: 24 * 40 }), // outside the window: ignored
@@ -101,7 +101,7 @@ describe('summarizeProject', () => {
     expect(s.total).toBe(3);
     expect(s.withData).toBe(2);
     expect(s.scanned?.pr.key).toBe('1');
-    expect(s).toMatchObject({ portfolio: 'Routing', before: 50, after: 70, change: 20, durationSec: 600 });
+    expect(s).toMatchObject({ before: 50, after: 70, change: 20, durationSec: 600 });
     expect(s.scanDate).toBe(res.prs[0].pr.analysisDate);
     expect(gateOf(s)).toEqual({ before: false, after: false });
   });
@@ -110,12 +110,12 @@ describe('summarizeProject', () => {
   });
   it('a PR from an agent that does not report the first score: no before, no change, gate after only', () => {
     const s = summarizeProject(project('p', [makePr('1', { score: 90 })]), NOW);
-    expect(s).toMatchObject({ before: null, after: 90, change: null, durationSec: null, portfolio: null });
+    expect(s).toMatchObject({ before: null, after: 90, change: null, durationSec: null });
     expect(gateOf(s)).toEqual({ before: null, after: true });
   });
   it('zero PRs: nulls not zeros', () => {
     const s = summarizeProject(project('p', []), NOW);
-    expect(s).toMatchObject({ total: 0, withData: 0, scanned: null, portfolio: null, before: null, after: null, change: null, scanDate: null, durationSec: null });
+    expect(s).toMatchObject({ total: 0, withData: 0, scanned: null, before: null, after: null, change: null, scanDate: null, durationSec: null });
   });
   it('only PRs without data: no scan', () => {
     const s = summarizeProject(project('p', [noData('1'), noData('2')]), NOW);
@@ -150,8 +150,8 @@ describe('summarizeOverview', () => {
 
 describe('sortProjects', () => {
   const list = () => [
-    summarizeProject(project('beta', [improved('1', 80, 90, 300, { portfolio: 'Routing', hours: 5 })]), NOW),
-    summarizeProject(project('alpha', [improved('2', 40, 60, 900, { portfolio: 'Platform', hours: 2 })]), NOW),
+    summarizeProject(project('beta', [improved('1', 80, 90, 300, { hours: 5 })]), NOW),
+    summarizeProject(project('alpha', [improved('2', 40, 60, 900, { hours: 2 })]), NOW),
     summarizeProject(project('gamma', [noData('4')]), NOW),
     summarizeProject(project('delta', [improved('5', 30, 70, 60, { hours: 9 })]), NOW),
   ];
@@ -166,9 +166,6 @@ describe('sortProjects', () => {
     expect(sortProjects(list(), 'before', 'asc').map((s) => s.key)).toEqual(['delta', 'alpha', 'beta', 'gamma']);
     expect(sortProjects(list(), 'time', 'asc').map((s) => s.key)).toEqual(['delta', 'beta', 'alpha', 'gamma']);
     expect(sortProjects(list(), 'scan', 'desc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
-  });
-  it('by portfolio: a component without one sorts after those with one', () => {
-    expect(sortProjects(list(), 'portfolio', 'asc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
   });
   it('sorts by name', () => {
     expect(sortProjects(list(), 'name', 'asc').map((s) => s.key)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
@@ -227,5 +224,44 @@ describe('lastUpdated', () => {
     const bad = makePr('1');
     bad.pr.analysisDate = 'garbage';
     expect(lastUpdated([bad])).toBeNull();
+  });
+});
+
+describe('groupByPortfolio and adoption', () => {
+  const sum = (key: string, prs: Parameters<typeof project>[1]) => summarizeProject(project(key, prs), NOW);
+  const teams: PortfolioRef[] = [
+    { key: 'b', name: 'Beta', projectKeys: ['a', 'b'] },
+    { key: 'a', name: 'Alpha', projectKeys: ['a'] },
+  ];
+  const list = () => [sum('a', [improved('1', 40, 60, 60)]), sum('b', [noData('2')]), sum('c', [improved('3', 50, 80, 60)]), sum('d', [])];
+
+  it('portfolios A-Z, a component in several is listed under each, those in none go last under null', () => {
+    expect(groupByPortfolio(list(), teams).map((g) => [g.portfolio, g.rows.map((s) => s.key)]))
+      .toEqual([['Alpha', ['a']], ['Beta', ['a', 'b']], [null, ['c', 'd']]]);
+  });
+  it('keeps the input order inside a group', () => {
+    expect(groupByPortfolio([sum('b', []), sum('a', [])], [{ key: 'x', name: 'X', projectKeys: ['a', 'b'] }])[0].rows.map((s) => s.key)).toEqual(['b', 'a']);
+  });
+  it('no portfolios at all: one group of everything under null', () => {
+    expect(groupByPortfolio(list(), []).map((g) => [g.portfolio, g.rows.length])).toEqual([[null, 4]]);
+  });
+  it('live = no error and at least one PR with data in the window', () => {
+    expect(list().map(isLive)).toEqual([true, false, true, false]);
+    expect(isLive(summarizeProject(project('e', [], 'HTTP 500'), NOW))).toBe(false);
+    expect(isLive(sum('old', [makePr('1', { hours: 24 * 40 })]))).toBe(false);
+  });
+  it('adoption: active = a PR in the window, adopted = with data; per portfolio the denominator is its active components', () => {
+    const a = adoption(list(), teams);
+    expect(a).toMatchObject({ active: 3, adopted: 2 });
+    expect(a.pct).toBeCloseTo(66.67, 1);
+    expect(a.byPortfolio).toEqual([
+      { portfolio: 'Alpha', active: 1, adopted: 1, pct: 100 },
+      { portfolio: 'Beta', active: 2, adopted: 1, pct: 50 },
+      { portfolio: null, active: 1, adopted: 1, pct: 100 },
+    ]);
+  });
+  it('adoption: nothing active gives null, not 0 or NaN; errored components are not counted', () => {
+    expect(adoption([], teams)).toMatchObject({ active: 0, adopted: 0, pct: null, byPortfolio: [] });
+    expect(adoption([summarizeProject(project('e', [noData('1')], 'HTTP 500'), NOW)], teams).active).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import type { DataSource, FileRow, MetricInfo, PrResult, ProjectRef, ProjectResult, SurvivorRow } from '../src/types';
+import type { DataSource, PortfolioRef, FileRow, MetricInfo, PrResult, ProjectRef, ProjectResult, SurvivorRow } from '../src/types';
 
 export const NOW = new Date('2026-10-05T12:00:00Z');
 
@@ -14,7 +14,6 @@ export function makePr(key: string, over: Partial<PrResult> & { hours?: number; 
     score: 85,
     scoreBefore: null,
     durationSec: null,
-    portfolio: null,
     threshold: 80,
     thresholdAssumed: false,
     measures: { new_mutation_score: 85, new_mutation_total: 40, new_mutation_killed: 34, new_mutation_survived: 4, new_mutation_no_coverage: 2 },
@@ -33,6 +32,7 @@ export function improved(key: string, before: number, after: number, sec: number
 
 export class FakeData implements DataSource {
   calls: string[] = [];
+  portfolios: PortfolioRef[] = [];
   constructor(
     public projects: ProjectResult[],
     public files: Record<string, FileRow[]> = {},
@@ -43,6 +43,10 @@ export class FakeData implements DataSource {
   async listProjects(): Promise<ProjectRef[]> {
     this.calls.push('listProjects');
     return this.projects.map((p) => p.project);
+  }
+  async listPortfolios(): Promise<PortfolioRef[]> {
+    this.calls.push('listPortfolios');
+    return this.portfolios;
   }
   async loadProject(project: ProjectRef): Promise<ProjectResult> {
     this.calls.push(`loadProject:${project.key}`);

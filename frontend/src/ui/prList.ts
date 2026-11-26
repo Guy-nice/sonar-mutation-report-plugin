@@ -1,5 +1,5 @@
-import { fmtDate, fmtDuration, fmtInt, fmtPct } from '../format';
-import { distribution, inWindow, isFailing, isNoPrAnalysis, isPassing, hasBefore, change, wasPassing } from '../model';
+import { fmtDate, fmtDuration, fmtInt, fmtPct, sonarBase } from '../format';
+import { distribution, gateOf, inWindow, isFailing, isNoPrAnalysis, isPassing, hasBefore, change, summarizeProject, wasPassing } from '../model';
 import { injectStyles } from '../styles';
 import type { DataSource, PrResult, ProjectRef } from '../types';
 import { clear, h } from './dom';
@@ -27,7 +27,8 @@ export async function renderPrList(
   root.replaceChildren(box);
   box.append(h('h1', {}, `Mutation - ${project.name}`), h('p', { class: 'md-muted' }, 'Loading pull requests...'));
 
-  const res = await data.loadProject(project);
+  const [res, portfolios] = await Promise.all([data.loadProject(project), data.listPortfolios()]);
+  const teams = portfolios.filter((p) => p.projectKeys.includes(project.key)).map((p) => p.name);
   clear(box);
   const title = `Mutation - ${project.name}`;
   if (res.error) {
@@ -43,8 +44,7 @@ export async function renderPrList(
     return;
   }
 
-  const portfolio = [...inWin].filter((r) => r.hasData).sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate)).find((r) => r.portfolio !== null)?.portfolio;
-  box.append(...pageHeader(title, inWin, ...(portfolio ? [`Portfolio: ${portfolio}`] : []), `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
+  box.append(...pageHeader(title, inWin, ...(teams.length > 0 ? [`Portfolio: ${teams.join(', ')}`] : []), `${inWin.filter((r) => r.hasData).length} of ${inWin.length} PRs have mutation data`));
 
   let status: StatusFilter = 'all';
   let days = 30;
@@ -89,12 +89,27 @@ export async function renderPrList(
   const scored = inWin.filter((r) => r.hasData && r.score !== null);
   const recent = [...scored].sort((a, b) => b.pr.analysisDate.localeCompare(a.pr.analysisDate)).slice(0, CHART_PRS);
 
+  const sum = summarizeProject(res, now());
+  const gate = gateOf(sum);
+  const componentCard = card('Component: before → after the agent', 'component',
+    h('table', { class: 'md-table' },
+      h('thead', {}, h('tr', {}, ...(['Component', 'Portfolio', 'Before', 'After', 'Change (pts)', 'Mutation gate', 'Status', 'Last scan', 'Time taken'] as const).map((t) =>
+        h('th', { class: ['Before', 'After', 'Change (pts)', 'Time taken'].includes(t) ? 'num' : '' }, t)))),
+      h('tbody', {}, h('tr', { 'data-row': 'component' },
+        h('td', {}, h('b', {}, project.name)),
+        h('td', {}, teams.length > 0 ? teams.join(', ') : h('span', { class: 'md-muted' }, '-')),
+        h('td', { class: 'num' }, fmtPct(sum.before)),
+        h('td', { class: 'num' }, fmtPct(sum.after)),
+        h('td', { class: 'num' }, changeCell(sum.change)),
+        h('td', {}, gateChange(gate.before, gate.after)),
+        h('td', {}, bandPill(sum.after)),
+        h('td', {}, sum.scanDate ? fmtDate(sum.scanDate) : '-'),
+        h('td', { class: 'num' }, fmtDuration(sum.durationSec))))),
+    h('p', { class: 'md-note2' }, 'Its most recent pull request with mutation data: the same numbers as its row on the Mutation overview.'));
+
+  box.prepend(h('a', { class: 'md-back', href: `${sonarBase()}/extension/mutationreport/overview`, 'data-action': 'back' }, '← Mutation overview'));
   box.append(
-    summaryTiles(inWin, now()),
-    h('div', { class: 'md-cards' },
-      card('Before → After Agent, by Pull Request', 'scores',
-        pairedBarChart(recent.map((r) => ({ key: r.pr.key, label: `#${r.pr.key} ${r.pr.title}`, before: r.scoreBefore, after: r.score as number, tick: r.threshold })), 'No scored pull requests.')),
-      distributionCard(DISTRIBUTION_TITLE, distribution(inWin))),
+    componentCard,
     card('Pull Requests', 'details',
       h('div', { class: 'md-filters' }, 'Status ',
         select('status', [['all', 'All'], ['failing', 'Failing'], ['passing', 'Passing'], ['nodata', 'No data']], (v) => { status = v as StatusFilter; }),
@@ -102,6 +117,11 @@ export async function renderPrList(
         select('days', [['7', 'Last 7 days'], ['14', 'Last 14 days'], ['30', 'Last 30 days']], (v) => { days = Number(v); })),
       tableHolder,
       legend(),
-      h('p', { class: 'md-note2' }, 'Before = new-code score of the first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the threshold (the black tick); Status and bar colors are score bands. Time taken = the whole agent run. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')));
+      h('p', { class: 'md-note2' }, 'Before = new-code score of the first run; After = score after the agent wrote tests. Mutation gate = the new-code score against the threshold (the black tick); Status and bar colors are score bands. Time taken = the whole agent run. "Open" = analyzed in the last 7 days (Sonar does not say whether a pull request is merged).')),
+    summaryTiles(inWin, now()),
+    h('div', { class: 'md-cards' },
+      card('Before → After Agent, by Pull Request', 'scores',
+        pairedBarChart(recent.map((r) => ({ key: r.pr.key, label: `#${r.pr.key} ${r.pr.title}`, before: r.scoreBefore, after: r.score as number, tick: r.threshold })), 'No scored pull requests.')),
+      distributionCard(DISTRIBUTION_TITLE, distribution(inWin))));
   paintTable();
 }

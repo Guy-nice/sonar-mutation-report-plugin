@@ -7,10 +7,11 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v1.0.1 (dashboard: before and after the agent).** v0.2.0's full metric set (per-file measures with
+> **Status: v1.1.0 (dashboard: adoption by Sonar Portfolio).** v0.2.0's full metric set (per-file measures with
 > folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
 > dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
-> after, the time it took, the scan date and an optional portfolio. Verified on a local SonarQube 26.1 and, with
+> after, the time it took and the scan date. v1.1.0 groups the overview by Sonar Portfolio, lists only live
+> components and adds an adoption summary. Verified on a local SonarQube 26.1 and, with
 > mock pull request analyses, on sonartest (see "Verification"). Tested over time across multiple repositories.
 
 ## Why a plugin
@@ -52,7 +53,7 @@ Run facts (project level, informational, only when the agent or the scan supplie
 |---|---|---|
 | `new_mutation_score_before` | percent | new-code score of the agent's first run, before it wrote tests |
 | `mutation_run_duration` | integer | seconds the agent took in total (scan, test writing, verify run) |
-| `mutation_portfolio` | string | group of the component, from the property `sonar.mutation.portfolio` |
+| `mutation_portfolio` | string | optional free-text group, from the property `sonar.mutation.portfolio`. Kept for gates and measures; the dashboard no longer uses it (it groups by Sonar Portfolio) |
 
 Survivors and no-coverage mutants become **external issues** (rules `external_mutation-report:survived`
 and `external_mutation-report:no-coverage`) on the file and line. No language or quality profile is
@@ -72,25 +73,38 @@ Keys are intentionally not compatible with DevCon5. Equivalents:
 | Alive Total % / Total % | `alive_percent` / `total_percent` |
 | Test Kills / Executions / Kill Ratio | `test_kills` / `tests_executed` / `test_kill_ratio` |
 
-## Dashboard (v1.0.0)
+## Dashboard (v1.1.0)
 
 Two read-only pages, built into the plugin jar, for the pull-request results the agent uploads. Nothing else in
 Sonar changes: no other metric, gate, rule or plugin is touched.
 
-- **Mutation overview** (top menu **More > Mutation overview**): for managers. Same four tiles as every project page
-  (score before -> after the agent, open PRs failing now, PR pass rate, time to test and fix; the subtitle says how
-  many components use mutation), a "Before -> After Agent, by Component" bar chart (grey = first run, colored =
-  final, black tick = threshold), a killed / alive "Mutant Distribution" card and a "Component changes" table:
-  component, portfolio, before, after, change (pts), mutation gate (Fail -> Pass), status band, last scan date,
-  time taken, plus a last row with the average. Every data column sorts (default: weakest After first).
-  Components without mutation data are hidden by default (a server can hold thousands of projects; the checkbox
-  label says how many are hidden) and sort last when shown (the adoption gap). A Portfolio filter appears when any
-  component has a portfolio. Projects that had mutation data on an earlier visit load first (kept in the browser's
-  local storage), so a big server fills in quickly; the table repaints in batches while projects stream in.
-  Measured on sonartest (2,084 projects): about 60 s until every project is loaded.
-- **Mutation** (project menu **More > Mutation**): same layout as the overview: tiles, a before -> after bar chart
-  per pull request, a killed / alive distribution card and the PR list for the last 30 days (last scan, before,
-  after, change, mutation gate, status band, time taken, survived, no coverage; filters by status and date). Click
+- **Mutation overview** (top menu **More > Mutation overview**): for managers and directors.
+  - **Data status** at the top: while loading, a progress bar ("Loading data: 14 of 120 components (12%)") and a
+    "partial - still loading" mark on the adoption card, because the numbers change until loading ends. When done, a
+    green "Data ready" mark with the number of components checked and the time, and a Refresh link.
+  - **Adoption of mutation testing (last 30 days)**: of the *active* components (a pull request analyzed in the last
+    30 days, the 100%), how many use mutation testing, overall and per **Sonar Portfolio** ("4 of 6 (67%)").
+    A component in several portfolios counts in each (once overall). Portfolios are Sonar's own (Enterprise Edition
+    and higher; the team structure), not related to mutation testing. Components in none are under "No portfolio".
+  - The four tiles (score before -> after the agent, open PRs failing now, PR pass rate, time to test and fix), a
+    "Before -> After Agent, by Portfolio" bar chart (average of the portfolio's components; grey = first run, colored
+    = final, black tick = threshold), a killed / alive "Mutant Distribution" card and a "Component changes, by
+    portfolio" table.
+  - **Live components only**: a component is listed when it has a pull request with mutation data in the last 30
+    days. The rest are only counted ("N without a recent mutation run hidden"). Components are grouped under their
+    portfolio (A-Z, "No portfolio" last; click a portfolio to collapse it). A portfolio row averages its components;
+    the last row averages all live components. Columns: component, before, after, change (pts), mutation gate
+    (Fail -> Pass), status band, last scan date, time taken. Every data column sorts inside the groups (default:
+    weakest After first). A Portfolio filter narrows the table.
+  - **Speed on a big server**: components that had mutation data on an earlier visit load first. A component with no
+    pull request in the last 30 days is not checked again for a day (the ready mark says how many were skipped;
+    Refresh checks all). Both are kept in the browser's local storage. The table repaints in batches while projects
+    stream in. Measured on sonartest (2,084 projects, v0.4.1): about 60 s until every project was loaded.
+- **Mutation** (project menu **More > Mutation**): a link back to the overview, a "Component: before -> after the
+  agent" row (the same numbers as the component's overview row, with its Sonar Portfolios), then the PR list for the
+  last 30 days (last scan, before, after, change, mutation gate, status band, time taken, survived, no coverage;
+  filters by status and date), the tiles, a before -> after bar chart per pull request and a killed / alive
+  distribution card. Click
   a PR, or open the page on a PR, for the detail: verdict and score against the threshold (with the score before
   the agent and the run time), counts, a weakest-files chart, a distribution card, and tabs Files (weakest first,
   with the survivors of the selected file and links into Sonar's code view), Survivors, Languages, All metrics.
@@ -112,9 +126,12 @@ data", never as 0; a PR from an agent that does not report the first score or th
 data but no score has no gate result and is left out of the pass rate.
 Sonar does not reliably say whether a PR is still open, so "open" means "analyzed in the last 7 days".
 
-Portfolio: set `sonar.mutation.portfolio=Routing` in `sonar-project.properties` (or `-D`). The scan publishes it as
-`mutation_portfolio` on every analysis; the overview shows and filters by it. It is free text (Sonar's own
-portfolios need Enterprise Edition and have no read API here).
+Portfolios: the overview groups by **Sonar Portfolios** (Enterprise Edition and higher), read with the viewer's own
+session: a user sees the portfolios they may browse. The web API call that lists portfolios and their projects
+differs by Sonar version, so the plugin tries the known calls in turn (`scripts/probe-portfolios.sh` shows which one
+a server answers). A server without Portfolios, or a user without permission, gets every component under "No
+portfolio". Only top-level portfolios are used; their sub-portfolios' projects are included. The property
+`sonar.mutation.portfolio` is still published as `mutation_portfolio` but the dashboard no longer reads it.
 
 How it works: the pages call Sonar's web API from the browser with the viewer's own session, so Sonar's
 permissions decide which projects and PRs each person sees. At most 6 requests run at once and results are
@@ -336,6 +353,7 @@ server runs: Administration > Marketplace > Installed, or `GET /api/plugins/inst
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.1.0 | 2026-11-25 | Overview: grouped by Sonar Portfolio (team structure, not the mutation property); live components only; adoption summary (active vs using mutation, overall and per portfolio); loading progress with a partial mark and a ready mark; components with no recent pull request are not re-checked for a day. Project page: component row and PR table on top, link back to the overview. |
 | 1.0.1 | 2026-11-24 | Fix: multi-module Maven/Gradle builds failed with "Can not add the same measure twice". The sensor now runs once per analysis (project sensor). A relative `sonar.mutation.reportPath` resolves against the root project directory. The property must be set at root level: set only in a submodule, the sensor is skipped. |
 | 1.0.0 | 2026-10-28 | First stable release. Dashboard (overview and project pages), before/after the agent, run duration, scan date, optional portfolio, performance and correctness fixes. |
 | 0.4.1 | 2026-10-14 | Fixes from sonartest: no-data components hidden by default, batched repaints, adopters loaded first. |

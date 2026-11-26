@@ -11,7 +11,8 @@ const shape = (root: HTMLElement) => ({
   heading: root.querySelector('h1')?.tagName,
   subtitle: root.querySelector('.md-sub')?.textContent?.startsWith('Mutation Score Dashboard • Last updated: '),
   tiles: [...root.querySelectorAll('[data-tile]')].map((t) => t.getAttribute('data-tile')),
-  cards: [...root.querySelectorAll('[data-card]')].map((c) => c.getAttribute('data-card')),
+  /** The cards both pages have; each page also has one of its own (adoption, component). */
+  cards: [...root.querySelectorAll('[data-card]')].map((c) => c.getAttribute('data-card')).filter((c) => c !== 'adoption' && c !== 'component').sort(),
   titles: [...root.querySelectorAll('[data-card] h2')].map((h) => h.textContent).filter((t) => t?.startsWith('Mutant')),
   legend: root.querySelectorAll('.md-legend span').length,
   statusBand: root.querySelector('td[data-col="status"] [data-band]') !== null,
@@ -25,14 +26,14 @@ describe('overview and project page share one design', () => {
     a = document.getElementById('a')!;
     b = document.getElementById('b')!;
     renderOverview(a, data(), () => NOW);
-    await vi.waitFor(() => expect(a.querySelector('[data-loading="true"]')).toBeNull());
+    await vi.waitFor(() => expect(a.querySelector('[data-status="ready"]')).not.toBeNull());
     await renderPrList(b, data(), { key: 'p', name: 'p' }, () => {}, () => NOW);
   });
 
   it('same header, tiles, cards, distribution title, legend and status bands', () => {
     expect(shape(a)).toEqual(shape(b));
     expect(shape(a).tiles).toEqual(['improvement', 'failingOpen', 'passRate', 'duration']);
-    expect(shape(a).cards).toEqual(['scores', 'distribution', 'details']);
+    expect(shape(a).cards).toEqual(['details', 'distribution', 'scores']);
   });
 
   it('same tile values for the same PRs', () => {
