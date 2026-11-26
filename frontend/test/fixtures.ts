@@ -1,4 +1,4 @@
-import type { DataSource, PortfolioRef, FileRow, MetricInfo, PrResult, ProjectRef, ProjectResult, SurvivorRow } from '../src/types';
+import type { DataSource, PortfolioBreakdown, PortfolioRef, FileRow, MetricInfo, PrResult, ProjectRef, ProjectResult, SurvivorRow } from '../src/types';
 
 export const NOW = new Date('2026-10-05T12:00:00Z');
 
@@ -47,6 +47,11 @@ export class FakeData implements DataSource {
   async listPortfolios(): Promise<PortfolioRef[]> {
     this.calls.push('listPortfolios');
     return this.portfolios;
+  }
+  breakdown: PortfolioBreakdown = { name: 'Team', rows: [] };
+  async loadPortfolioBreakdown(portfolioKey: string, metricKeys: string[]): Promise<PortfolioBreakdown> {
+    this.calls.push(`loadPortfolioBreakdown:${portfolioKey}:${metricKeys.length}`);
+    return this.breakdown;
   }
   async loadProject(project: ProjectRef): Promise<ProjectResult> {
     this.calls.push(`loadProject:${project.key}`);

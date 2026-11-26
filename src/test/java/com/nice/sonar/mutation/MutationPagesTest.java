@@ -32,13 +32,21 @@ class MutationPagesTest {
   }
 
   @Test
-  void registersExactlyTwoPages() {
-    assertThat(pages()).hasSize(2);
+  void registersTheBreakdownPageOnPortfoliosAndSubPortfolios() {
+    Page portfolio = pages().stream().filter(p -> p.getKey().equals("mutationreport/portfolio")).findFirst().orElseThrow();
+    assertThat(portfolio.getScope()).isEqualTo(Page.Scope.COMPONENT);
+    assertThat(portfolio.getComponentQualifiers()).containsExactlyInAnyOrder(Page.Qualifier.VIEW, Page.Qualifier.SUB_VIEW);
   }
 
   @Test
-  void bundlesForBothPagesArePackagedAsStaticResources() {
+  void registersExactlyThreePages() {
+    assertThat(pages()).hasSize(3);
+  }
+
+  @Test
+  void bundlesForAllPagesArePackagedAsStaticResources() {
     assertThat(getClass().getResource("/static/overview.js")).isNotNull();
+    assertThat(getClass().getResource("/static/portfolio.js")).isNotNull();
     assertThat(getClass().getResource("/static/project.js")).isNotNull();
   }
 }

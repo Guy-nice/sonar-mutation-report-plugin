@@ -140,7 +140,8 @@ public class MutationMetrics implements Metrics {
   public List<Metric> getMetrics() {
     List<Metric> all = new ArrayList<>();
     for (Scope scope : Scope.values()) {
-      String label = scope == Scope.NEW ? " (new code)" : "";
+      // The report's "overall" counts every mutant of the files a run changed, not the whole repository.
+      String label = scope == Scope.NEW ? " (new code)" : " (changed files)";
       for (Base base : Base.values()) {
         all.add(build(base.key(scope), base.name + label, base.type, base.direction, base.description, base.isHidden()));
       }

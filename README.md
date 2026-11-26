@@ -7,11 +7,11 @@ The plugin **runs no mutation testing** and knows nothing about languages. An ex
 mutation tools (Stryker, PIT, mutmut, ...), improves the tests, and writes one JSON report. During the
 normal Sonar scan the plugin reads that file and publishes its numbers.
 
-> **Status: v1.1.0 (dashboard: adoption by Sonar Portfolio).** v0.2.0's full metric set (per-file measures with
+> **Status: v1.2.0 (portfolio breakdown, safer scans).** v0.2.0's full metric set (per-file measures with
 > folder/project aggregation, new-code variants, per-language measures, survivor issues) plus two read-only
 > dashboard pages for pull requests (see "Dashboard"). v0.4.0 shows what the agent changed: the score before and
 > after, the time it took and the scan date. v1.1.0 groups the overview by Sonar Portfolio, lists only live
-> components and adds an adoption summary. Verified on a local SonarQube 26.1 and, with
+> components and adds an adoption summary. v1.2.0 adds a breakdown page on every Sonar Portfolio (coverage and mutation side by side) and refuses a changed-lines-only scan on a main branch. Verified on a local SonarQube 26.1 and, with
 > mock pull request analyses, on sonartest (see "Verification"). Tested over time across multiple repositories.
 
 ## Why a plugin
@@ -125,6 +125,31 @@ has a first score. Window: 30 days. A score equal to the threshold passes. A mis
 data", never as 0; a PR from an agent that does not report the first score or the time shows `-` there. A PR with
 data but no score has no gate result and is left out of the pass rate.
 Sonar does not reliably say whether a PR is still open, so "open" means "analyzed in the last 7 days".
+
+### Breakdown page (v1.2.0)
+
+On a Sonar Portfolio or sub-portfolio, **More > Mutation breakdown** lists its projects (sub-portfolios included) with
+coverage and mutation columns side by side, for **Overall code** or **New code**. A total row sits on top.
+
+- **Totals are sums, not averages**: coverage = covered / lines to cover, score = killed / total over all projects, so a
+  big project weighs more than a small one and the total matches what Sonar itself shows.
+- **Mutation reach** = analyzable lines of the mutated files / lines of code (new code: / new lines). Mutation data comes
+  from the files that pull requests changed, so the reach is usually small. A mutation score or test strength with a
+  reach under **5%** is greyed out, with the reach in its tooltip: it is a sample, not the score of the code.
+- **A missing value is `-`**, never 0. New code: the mutation measures of new code come from pull request analyses and are
+  not published on the main branch, so they show `-` here; see the Mutation overview.
+- **Columns are data** (`frontend/src/columns.ts`). A new column (a security or reliability rating, a new mutation
+  measure) is one entry: its inputs, its formula and its format. The page, the totals and the sorting need no change.
+- Needs Sonar Portfolios (Enterprise Edition or higher). Not shown, because it is not published yet: the age of the report.
+- **"Overall" means changed files.** The `mutation_*` measures count every mutant of the files a run changed. They are not
+  a repository-wide score. Repository-wide data needs a full run on the main branch.
+
+### Scans the agent runs by hand
+
+A scan marked `sonar.mutation.source=agent` and `sonar.mutation.scope=diff` covers the changed lines only. When it would
+be stored as the main branch (no `sonar.pullrequest.key` and no `sonar.branch.name`) the sensor fails with an explanation:
+it would replace the project's whole-code coverage and measures. Pull request analyses, named branches, `scope=full` and CI
+scans (no mark) are not affected.
 
 Portfolios: the overview groups by **Sonar Portfolios** (Enterprise Edition and higher), read with the viewer's own
 session: a user sees the portfolios they may browse. The web API call that lists portfolios and their projects
@@ -353,6 +378,7 @@ server runs: Administration > Marketplace > Installed, or `GET /api/plugins/inst
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.2.0 | 2026-11-26 | **Breakdown page on a Sonar Portfolio** (More > Mutation breakdown): a row per project and a weighted total, Overall code or New code, columns from a registry (coverage, mutation reach, mutation score, test strength, survived, no coverage); the mutation score is greyed out under 5% reach. **Fix: the overview listed 1 of 49 portfolios on a large server** (it now reads `components/search` first). **The "overall" mutation measures are named "(changed files)"**: they cover the files a run changed, not the whole repository. **Guard: a scan marked `sonar.mutation.source=agent` and `sonar.mutation.scope=diff` is refused when it would be stored as the main branch.** |
 | 1.1.0 | 2026-11-25 | Overview: grouped by Sonar Portfolio (team structure, not the mutation property); live components only; adoption summary (active vs using mutation, overall and per portfolio); loading progress with a partial mark and a ready mark; components with no recent pull request are not re-checked for a day. Project page: component row and PR table on top, link back to the overview. |
 | 1.0.1 | 2026-11-24 | Fix: multi-module Maven/Gradle builds failed with "Can not add the same measure twice". The sensor now runs once per analysis (project sensor). A relative `sonar.mutation.reportPath` resolves against the root project directory. The property must be set at root level: set only in a submodule, the sensor is skipped. |
 | 1.0.0 | 2026-10-28 | First stable release. Dashboard (overview and project pages), before/after the agent, run duration, scan date, optional portfolio, performance and correctness fixes. |

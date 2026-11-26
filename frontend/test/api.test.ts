@@ -242,12 +242,35 @@ describe('loadPullRequest', () => {
   });
 });
 
+describe('loadPortfolioBreakdown', () => {
+  it('reads the projects of a portfolio with 15 measure keys per call, merged per project (refKey is the real key)', async () => {
+    const keys = Array.from({ length: 20 }, (_, i) => `m${i}`);
+    const { fn, calls } = fakeFetch((url) => {
+      const u = decodeURIComponent(url);
+      if (u.includes('/api/components/show')) return { component: { name: 'APQ team' } };
+      const first = u.includes('metricKeys=m0,');
+      return { paging: { total: 1 }, components: [{ key: 'view:p1', refKey: 'p1', name: 'P1', measures: [first ? { metric: 'm0', value: '5' } : { metric: 'm19', value: '7' }] }] };
+    });
+    const res = await new SonarApi(fn).loadPortfolioBreakdown('APQ', keys);
+    expect(res).toEqual({ name: 'APQ team', rows: [{ key: 'p1', name: 'P1', measures: { m0: 5, m19: 7 } }] });
+    const trees = calls.filter((c) => c.includes('component_tree')).map((c) => decodeURIComponent(c));
+    expect(trees).toHaveLength(2);
+    expect(trees.every((t) => t.includes('component=APQ') && t.includes('strategy=all') && t.includes('qualifiers=TRK'))).toBe(true);
+    expect(trees[0].match(/metricKeys=([^&]*)/)![1].split(',')).toHaveLength(15);
+  });
+
+  it('uses the key as the title when the portfolio name cannot be read', async () => {
+    const { fn } = fakeFetch((url) => (url.includes('/api/components/show') ? { status: 404 } : { paging: { total: 0 }, components: [] }));
+    expect(await new SonarApi(fn).loadPortfolioBreakdown('APQ', ['ncloc'])).toEqual({ name: 'APQ', rows: [] });
+  });
+});
+
 describe('listPortfolios', () => {
   const tree = (keys: Array<{ key: string; refKey?: string }>) => ({ paging: { total: keys.length }, components: keys });
 
   it('lists the portfolios and their projects; a portfolio lists a project as a reference, refKey is the real key', async () => {
     const { fn, calls } = fakeFetch((url) => {
-      if (url.includes('/api/views/list')) return { views: [{ key: 'team-a', name: "Dana's team", qualifier: 'VW' }, { key: 'sub', name: 'Sub', qualifier: 'SVW' }] };
+      if (url.includes('/api/components/search')) return { paging: { total: 1 }, components: [{ key: 'team-a', name: "Dana's team" }] };
       if (url.includes('/api/components/tree')) return tree([{ key: 'team-a:p1', refKey: 'p1' }, { key: 'p2' }, { key: 'x:p1', refKey: 'p1' }]);
       return {};
     });
@@ -259,10 +282,22 @@ describe('listPortfolios', () => {
     expect(tcall).toContain('strategy=all');
   });
 
-  it('falls back to components/search when views/list is not there, and to measures/component_tree for the projects', async () => {
+  it('lists every portfolio from components/search, even when views/list answers with a part of them (1 of 49 on production)', async () => {
+    const all = Array.from({ length: 49 }, (_, i) => ({ key: `v${i}`, name: `V${i}` }));
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.includes('/api/views/list')) return { views: [{ key: 'v0', name: 'V0', qualifier: 'VW' }] };
+      if (url.includes('/api/components/search')) return { paging: { total: 49 }, components: all };
+      if (url.includes('/api/components/tree')) return tree([{ key: 'p1' }]);
+      return {};
+    });
+    expect((await new SonarApi(fn).listPortfolios()).map((p) => p.key)).toEqual(all.map((p) => p.key));
+    expect(calls.some((c) => c.includes('/api/views/list'))).toBe(false);
+  });
+
+  it('falls back to views/list when components/search is not there, and to measures/component_tree for the projects', async () => {
     const { fn } = fakeFetch((url) => {
-      if (url.includes('/api/views/list')) return { status: 404 };
-      if (url.includes('/api/components/search')) return { paging: { total: 1 }, components: [{ key: 'v1', name: 'V1' }] };
+      if (url.includes('/api/components/search')) return { status: 400 };
+      if (url.includes('/api/views/list')) return { views: [{ key: 'v1', name: 'V1', qualifier: 'VW' }] };
       if (url.includes('/api/components/tree')) return { status: 400 };
       if (url.includes('/api/measures/component_tree')) return tree([{ key: 'p9' }]);
       return {};

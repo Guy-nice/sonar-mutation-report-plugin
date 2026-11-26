@@ -8,6 +8,7 @@ mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'iife', target: 'es2020', minify: !dev, logLevel: 'info' };
 await build({ ...common, entryPoints: ['src/entry-overview.ts'], outfile: out + 'overview.js' });
 await build({ ...common, entryPoints: ['src/entry-project.ts'], outfile: out + 'project.js' });
+await build({ ...common, entryPoints: ['src/entry-portfolio.ts'], outfile: out + 'portfolio.js' });
 if (dev) {
   await build({ ...common, minify: false, entryPoints: ['dev/main.ts'], outfile: 'dev/dist/dev.js' });
 }
